@@ -326,13 +326,20 @@ def search_quotes(query, top_k=5):
 
 def display_quote_card(quote, score):
     """Display a quote as a beautiful card"""
+    # Extract data
+    quote_num = quote.get('quote_number', 'N/A')
+    voltage = quote.get('voltage', 'N/A')
+    amperage = quote.get('amperage', 'N/A')
+    dimensions = quote.get('dimensions_text', 'N/A')
+    date = quote.get('quote_date', 'N/A')
+    modules = quote.get('modules_summary', 'N/A')
+    
     st.markdown(f"""
     <div class="quote-card">
         <div class="quote-header">
             <div>
-                <div class="quote-number">{quote.get('quote_number', 'N/A')}</div>
-                <div class="quote-customer">{quote.get('customer_name', 'N/A')}</div>
-                <div class="quote-project">{quote.get('project_title', 'N/A')}</div>
+                <div class="quote-number">{quote_num}</div>
+                <div class="quote-project">{modules}</div>
             </div>
             <div class="relevance-badge">{int(score * 100)}% match</div>
         </div>
@@ -340,52 +347,63 @@ def display_quote_card(quote, score):
         <div class="spec-grid">
             <div class="spec-item">
                 <div class="spec-label">Voltage</div>
-                <div class="spec-value">{quote.get('voltage', 'N/A')}</div>
+                <div class="spec-value">{voltage}</div>
             </div>
             <div class="spec-item">
                 <div class="spec-label">Amperage</div>
-                <div class="spec-value">{quote.get('amperage', 'N/A')}</div>
+                <div class="spec-value">{amperage}</div>
             </div>
             <div class="spec-item">
                 <div class="spec-label">Date</div>
-                <div class="spec-value">{quote.get('quote_date', 'N/A')}</div>
+                <div class="spec-value">{date}</div>
             </div>
         </div>
         
         <div class="spec-item" style="margin-top: 1rem;">
             <div class="spec-label">Dimensions</div>
-            <div class="spec-value">{quote.get('dimensions_text', 'N/A')}</div>
+            <div class="spec-value">{dimensions}</div>
         </div>
-        
-        {f'<div class="spec-item" style="margin-top: 0.5rem;"><div class="spec-label">Modules</div><div class="spec-value">{quote.get("modules_summary", "N/A")}</div></div>' if quote.get('modules_summary') != 'N/A' else ''}
     </div>
     """, unsafe_allow_html=True)
 
 def generate_response(query, search_results):
     """Generate AI response based on search results"""
     if not search_results:
-        return "I couldn't find any similar quotes. Try rephrasing your query or being more specific about dimensions, voltage, or customer requirements."
+        return "I couldn't find any quotes matching those specifications. Try:\n- Different voltage (e.g., 480V, 12.47kV)\n- Different amperage range\n- Broader search terms"
     
-    context = "\n\n".join([
-        f"Quote {r.get('quote_number')}: {r.get('customer_name')} - {r.get('project_title')}\n"
-        f"Specs: {r.get('voltage')}, {r.get('amperage')}\n"
-        f"Dimensions: {r.get('dimensions_text')}"
-        for r in search_results[:3]
+    # Build context from top 3 results
+    quotes_summary = []
+    for r in search_results[:3]:
+        quote_num = r.get('quote_number', 'Unknown')
+        voltage = r.get('voltage', 'N/A')
+        amperage = r.get('amperage', 'N/A')
+        dimensions = r.get('dimensions_text', 'N/A')
+        nema = r.get('modules_summary', '')
+        
+        summary = f"**{quote_num}**: {voltage}, {amperage}"
+        if dimensions != 'N/A':
+            dims_short = dimensions.split('|')[0].strip() if '|' in dimensions else dimensions
+            summary += f", {dims_short}"
+        quotes_summary.append(summary)
+    
+    context = "\n".join([
+        f"- {summary}" 
+        for summary in quotes_summary
     ])
     
     try:
         response = openai.ChatCompletion.create(
             engine=AZURE_OPENAI_DEPLOYMENT,
             messages=[
-                {"role": "system", "content": "You are a helpful assistant for SAI Advanced Power Solutions. Help users find relevant switchgear quotes based on their requirements. Be concise and highlight key specs."},
-                {"role": "user", "content": f"Based on these quotes:\n\n{context}\n\nAnswer this query: {query}"}
+                {"role": "system", "content": "You are a helpful SAI switchgear specialist. Provide brief, clear summaries of quotes. Focus on key specs. Be conversational and helpful."},
+                {"role": "user", "content": f"Based on these quotes:\n{context}\n\nUser asked: {query}\n\nProvide a brief, helpful response (2-3 sentences max)."}
             ],
             temperature=0.7,
-            max_tokens=500
+            max_tokens=200
         )
         return response.choices[0].message.content
     except:
-        return f"I found {len(search_results)} similar quotes. Here are the most relevant ones:"
+        return f"Found {len(search_results)} matching quotes. Here are the most relevant options:"
 
 # Header
 st.markdown("""
@@ -451,3 +469,57 @@ with st.sidebar:
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = []
         st.rerun()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

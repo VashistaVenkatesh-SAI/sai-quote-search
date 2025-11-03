@@ -334,29 +334,38 @@ def display_quote_card(quote, score):
     date = quote.get('quote_date', 'N/A')
     modules = quote.get('modules_summary', 'N/A')
     
+    # Create card container with custom styling
     with st.container():
-        # Header with quote number and match score
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown(f"### 🔷 {quote_num}")
-            st.caption(f"{modules}")
-        with col2:
-            st.markdown(f"<div style='text-align: right; background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); color: white; padding: 0.5rem 1rem; border-radius: 20px; font-weight: 600; font-size: 0.9rem;'>{int(score * 100)}% match</div>", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style='background: white; padding: 1.5rem; border-radius: 12px; border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1rem;'>
+            <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 2px solid #F3F4F6;'>
+                <div>
+                    <h3 style='color: #2563EB; margin: 0; font-size: 1.25rem;'>📋 {quote_num}</h3>
+                    <p style='color: #6B7280; margin: 0.25rem 0 0 0; font-size: 0.875rem;'>{modules}</p>
+                </div>
+                <div style='background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); color: white; padding: 0.5rem 1.25rem; border-radius: 20px; font-weight: 600; font-size: 0.875rem;'>
+                    {int(score * 100)}% match
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
-        st.divider()
-        
-        # Specs in columns
+        # Specs in columns with clear labels
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("⚡ Voltage", voltage)
+            st.markdown("**⚡ Voltage**")
+            st.markdown(f"<p style='font-size: 1.25rem; font-weight: 600; color: #1F2937; margin: 0;'>{voltage}</p>", unsafe_allow_html=True)
         with col2:
-            st.metric("🔌 Amperage", amperage)
+            st.markdown("**🔌 Amperage**")
+            st.markdown(f"<p style='font-size: 1.25rem; font-weight: 600; color: #1F2937; margin: 0;'>{amperage}</p>", unsafe_allow_html=True)
         with col3:
-            st.metric("📅 Date", date)
+            st.markdown("**📅 Date**")
+            st.markdown(f"<p style='font-size: 1.25rem; font-weight: 600; color: #1F2937; margin: 0;'>{date}</p>", unsafe_allow_html=True)
         
-        # Dimensions
+        # Dimensions in info box
         if dimensions and dimensions != 'N/A':
-            st.markdown("**📏 Dimensions:**")
+            st.markdown("")  # Spacing
+            st.markdown("**📏 Dimensions**")
             st.info(dimensions)
         
         st.markdown("---")

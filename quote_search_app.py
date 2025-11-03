@@ -96,7 +96,7 @@ st.markdown("""
     
     /* Message bubbles - User */
     .user-message {
-        background: #000000;
+        background: #2563EB;
         color: white;
         padding: 1rem 1.25rem;
         border-radius: 18px;
@@ -452,6 +452,57 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.session_state.current_user = None
         st.rerun()
+    
+    st.markdown("---")
+    
+    # File upload section
+    st.markdown("### 📤 Upload New Quote")
+    uploaded_file = st.file_uploader(
+        "Drop PDF here",
+        type=['pdf'],
+        help="Upload a quote PDF to process and search for similar quotes"
+    )
+    
+    if uploaded_file is not None:
+        if st.button("🔍 Upload & Search Similar", use_container_width=True):
+            with st.spinner("Uploading and searching..."):
+                try:
+                    # Upload to raw container
+                    from azure.storage.blob import BlobServiceClient
+                    
+                    STORAGE_CONNECTION_STRING = st.secrets.get("STORAGE_CONNECTION_STRING", "")
+                    
+                    if STORAGE_CONNECTION_STRING:
+                        blob_service = BlobServiceClient.from_connection_string(STORAGE_CONNECTION_STRING)
+                        raw_container = blob_service.get_container_client("raw")
+                        
+                        # Upload file
+                        blob_client = raw_container.get_blob_client(uploaded_file.name)
+                        blob_client.upload_blob(uploaded_file.getvalue(), overwrite=True)
+                        
+                        st.success(f"✅ Uploaded: {uploaded_file.name}")
+                        st.info("🔄 File is being processed. Check back in 2-3 minutes for it to appear in search results.")
+                        
+                        # Try to extract basic info and search for similar
+                        st.markdown("### 🔍 Searching for similar quotes...")
+                        
+                        # Search by filename patterns
+                        search_query = uploaded_file.name.replace('.pdf', '').replace('_', ' ')
+                        results = search_quotes(search_query, top_k=3)
+                        
+                        if results:
+                            st.markdown("**📊 Similar existing quotes:**")
+                            for result in results:
+                                with st.expander(f"📋 {result.get('quote_number')} — {result.get('voltage')}, {result.get('amperage')}"):
+                                    st.markdown(f"**Dimensions:** {result.get('dimensions_text')}")
+                                    st.markdown(f"**Details:** {result.get('modules_summary')}")
+                        else:
+                            st.info("No similar quotes found in the database.")
+                    else:
+                        st.error("❌ Storage connection not configured. Contact admin.")
+                        
+                except Exception as e:
+                    st.error(f"❌ Upload failed: {str(e)}")
     
     st.markdown("---")
     st.markdown("### 📊 Stats")

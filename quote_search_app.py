@@ -46,6 +46,16 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
+    /* Hide error banners */
+    .stException {display: none;}
+    div[data-testid="stException"] {display: none;}
+    
+    /* Better contrast */
+    .stApp {
+        background-color: #F7F5F2;
+        min-height: 100vh;
+    }
+    
     /* Custom header */
     .custom-header {
         background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);

@@ -1,6 +1,6 @@
 """
 SAI Quote Search - Claude-style Interface
-Beautiful light mode with blue accents
+Beautiful light mode with blue accents - SECURE VERSION
 """
 import streamlit as st
 import openai
@@ -8,14 +8,17 @@ from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
 import json
 
-# Configuration
-SEARCH_ENDPOINT = "https://srsaiquote.search.windows.net"
-SEARCH_KEY = "6LYzRPPPBJXWynMXr63JJdK4FHqoXh1bmMeL1v9shrAzSeB10o75"
-INDEX_NAME = "quotes-index"
-AZURE_OPENAI_ENDPOINT = "https://aoaisaiquote.openai.azure.com/"
-AZURE_OPENAI_KEY = "E7zIlHREcLZ7BoiGzVxYuELzAp7qTuNZY9pSneHJmIFxXairC7SqJQQJ99BKACYeBjFXJ3w3AAABACOGNePf"
-AZURE_OPENAI_DEPLOYMENT = "gpt-4o-mini"
-AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS = "text-embedding-3-large"
+# Configuration from Streamlit secrets
+SEARCH_ENDPOINT = st.secrets["SEARCH_ENDPOINT"]
+SEARCH_KEY = st.secrets["SEARCH_KEY"]
+INDEX_NAME = st.secrets["INDEX_NAME"]
+AZURE_OPENAI_ENDPOINT = st.secrets["AZURE_OPENAI_ENDPOINT"]
+AZURE_OPENAI_KEY = st.secrets["AZURE_OPENAI_KEY"]
+AZURE_OPENAI_DEPLOYMENT = st.secrets["AZURE_OPENAI_DEPLOYMENT"]
+AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS = st.secrets["AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS"]
+
+# Password protection
+AUTHORIZED_USERS = st.secrets["AUTHORIZED_USERS"]
 
 openai.api_type = "azure"
 openai.api_key = AZURE_OPENAI_KEY
@@ -200,11 +203,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
     }
     
-    /* Sidebar */
-    .css-1d391kg {
-        background-color: white;
-    }
-    
     /* Clean scrollbar */
     ::-webkit-scrollbar {
         width: 8px;
@@ -225,13 +223,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-# Password protection
-AUTHORIZED_USERS = {
-    "Admin": "SaiAdm113!", 
-    "TempUser": "SaiTem113!",
-    # Add more users as needed
-}
 
 def check_password():
     """Returns True if user is authenticated"""

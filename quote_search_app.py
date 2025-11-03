@@ -108,7 +108,7 @@ st.markdown("""
     /* Message bubbles - assistant (white) */
     .assistant-message {
         background: white;
-        color: #1F2937;
+        color: #000000;
         padding: 1.25rem 1.5rem;
         border-radius: 1rem;
         margin: 1rem 0;

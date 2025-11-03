@@ -304,13 +304,17 @@ def search_quotes(query, top_k=5):
         return []
     
     try:
+        from azure.search.documents.models import VectorizedQuery
+        
+        vector_query = VectorizedQuery(
+            vector=embedding,
+            k_nearest_neighbors=top_k,
+            fields="content_vector"
+        )
+        
         results = st.session_state.search_client.search(
             search_text=query,
-            vector_queries=[{
-                "vector": embedding,
-                "k_nearest_neighbors": top_k,
-                "fields": "content_vector"
-            }],
+            vector_queries=[vector_query],
             select=["quote_number", "customer_name", "project_title", "quote_date", 
                    "dimensions_text", "voltage", "amperage", "modules_summary", "full_content"],
             top=top_k

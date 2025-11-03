@@ -1,11 +1,12 @@
 """
-SAI Quote Search - Claude-style Interface
-Beautiful light mode with blue accents - SECURE VERSION
+SAI Quote Search - Claude Dark Mode Interface
+Exact replica of Claude.ai's beautiful dark design
 """
 import streamlit as st
 import openai
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
+from azure.search.documents.models import VectorizedQuery
 import json
 
 # Configuration from Streamlit secrets
@@ -33,12 +34,24 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS - Claude-style with blue
+# Custom CSS - Claude Dark Mode
 st.markdown("""
 <style>
-    /* Main background - light cream like Claude */
+    /* Claude Dark Mode Colors */
+    :root {
+        --bg-primary: #1e1e1e;
+        --bg-secondary: #2d2d2d;
+        --bg-tertiary: #3a3a3a;
+        --text-primary: #e8e8e8;
+        --text-secondary: #b0b0b0;
+        --accent-blue: #2563EB;
+        --border-color: #404040;
+    }
+    
+    /* Main background */
     .stApp {
-        background-color: #F7F5F2;
+        background-color: #1e1e1e;
+        color: #e8e8e8;
     }
     
     /* Hide Streamlit branding */
@@ -46,91 +59,80 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Hide error banners */
-    .stException {display: none;}
-    div[data-testid="stException"] {display: none;}
-    
-    /* Better contrast */
-    .stApp {
-        background-color: #F7F5F2;
-        min-height: 100vh;
-    }
-    
-    /* Custom header */
-    .custom-header {
-        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+    /* Header */
+    .main-header {
+        background: #2d2d2d;
         padding: 1.5rem 2rem;
-        border-radius: 0.75rem;
+        border-radius: 12px;
         margin-bottom: 2rem;
-        box-shadow: 0 4px 6px rgba(37, 99, 235, 0.1);
+        border: 1px solid #404040;
     }
     
-    .custom-header h1 {
-        color: white;
+    .main-header h1 {
+        color: #e8e8e8;
         margin: 0;
-        font-size: 1.875rem;
+        font-size: 1.75rem;
         font-weight: 600;
-        letter-spacing: -0.025em;
     }
     
-    .custom-header p {
-        color: #DBEAFE;
+    .main-header p {
+        color: #b0b0b0;
         margin: 0.5rem 0 0 0;
-        font-size: 1rem;
+        font-size: 0.95rem;
     }
     
-    /* Search box */
-    .stTextInput > div > div > input {
-        border-radius: 0.75rem;
-        border: 2px solid #E5E7EB;
-        padding: 0.875rem 1rem;
-        font-size: 1rem;
-        background: white;
-        transition: all 0.2s;
+    /* Chat input */
+    .stChatInput {
+        background: #2d2d2d !important;
+        border: 1px solid #404040 !important;
+        border-radius: 24px !important;
     }
     
-    .stTextInput > div > div > input:focus {
-        border-color: #2563EB;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    .stChatInput textarea {
+        background: #2d2d2d !important;
+        color: #e8e8e8 !important;
+        border: none !important;
     }
     
-    /* Message bubbles - user (blue) */
+    /* Message bubbles - User */
     .user-message {
-        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+        background: #2563EB;
         color: white;
         padding: 1rem 1.25rem;
-        border-radius: 1rem;
-        margin: 1rem 0;
-        margin-left: 20%;
-        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
+        border-radius: 18px;
+        margin: 1.5rem 0;
+        max-width: 85%;
+        margin-left: auto;
+        font-size: 0.95rem;
+        line-height: 1.5;
     }
     
-    /* Message bubbles - assistant (white) */
+    /* Message bubbles - Assistant */
     .assistant-message {
-        background: white;
-        color: #000000;
+        background: #2d2d2d;
+        color: #e8e8e8;
         padding: 1.25rem 1.5rem;
-        border-radius: 1rem;
-        margin: 1rem 0;
-        margin-right: 20%;
-        border: 1px solid #E5E7EB;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        border-radius: 18px;
+        margin: 1.5rem 0;
+        max-width: 85%;
+        border: 1px solid #404040;
+        font-size: 0.95rem;
+        line-height: 1.6;
     }
     
     /* Quote cards */
     .quote-card {
-        background: white;
-        border-radius: 0.75rem;
+        background: #2d2d2d;
+        border-radius: 12px;
         padding: 1.5rem;
         margin: 1rem 0;
-        border: 1px solid #E5E7EB;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        border: 1px solid #404040;
         transition: all 0.2s;
     }
     
     .quote-card:hover {
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
         border-color: #2563EB;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
     }
     
     .quote-header {
@@ -139,7 +141,7 @@ st.markdown("""
         align-items: center;
         margin-bottom: 1rem;
         padding-bottom: 1rem;
-        border-bottom: 1px solid #F3F4F6;
+        border-bottom: 1px solid #404040;
     }
     
     .quote-number {
@@ -148,88 +150,106 @@ st.markdown("""
         color: #2563EB;
     }
     
-    .relevance-badge {
-        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+    .quote-subtitle {
+        font-size: 0.875rem;
+        color: #b0b0b0;
+        margin-top: 0.25rem;
+    }
+    
+    .match-badge {
+        background: #2563EB;
         color: white;
-        padding: 0.25rem 0.75rem;
-        border-radius: 9999px;
-        font-size: 0.875rem;
-        font-weight: 500;
+        padding: 0.375rem 0.875rem;
+        border-radius: 16px;
+        font-size: 0.8rem;
+        font-weight: 600;
     }
     
-    .quote-customer {
-        font-size: 1rem;
-        color: #6B7280;
-        margin-bottom: 0.5rem;
-    }
-    
-    .quote-project {
-        font-size: 0.875rem;
-        color: #9CA3AF;
-    }
-    
-    .spec-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-top: 1rem;
-    }
-    
-    .spec-item {
-        background: #F9FAFB;
-        padding: 0.75rem;
-        border-radius: 0.5rem;
-        border-left: 3px solid #2563EB;
-    }
-    
+    /* Spec labels and values */
     .spec-label {
         font-size: 0.75rem;
-        color: #6B7280;
+        color: #b0b0b0;
         text-transform: uppercase;
         letter-spacing: 0.05em;
         font-weight: 500;
+        margin-bottom: 0.25rem;
     }
     
     .spec-value {
-        font-size: 1rem;
-        color: #1F2937;
+        font-size: 1.125rem;
+        color: #e8e8e8;
         font-weight: 600;
-        margin-top: 0.25rem;
+    }
+    
+    /* Streamlit components override */
+    .stMarkdown {
+        color: #e8e8e8;
+    }
+    
+    /* Divider */
+    hr {
+        border-color: #404040;
+        margin: 1.5rem 0;
+    }
+    
+    /* Info boxes */
+    .stInfo {
+        background: #2d2d2d !important;
+        border: 1px solid #404040 !important;
+        color: #e8e8e8 !important;
+    }
+    
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #2d2d2d;
+        border-right: 1px solid #404040;
+    }
+    
+    [data-testid="stSidebar"] .stMarkdown {
+        color: #e8e8e8;
     }
     
     /* Buttons */
     .stButton > button {
-        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+        background: #2563EB;
         color: white;
         border: none;
-        border-radius: 0.5rem;
-        padding: 0.625rem 1.25rem;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
         font-weight: 500;
         transition: all 0.2s;
     }
     
     .stButton > button:hover {
-        transform: translateY(-1px);
+        background: #1d4ed8;
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
     }
     
-    /* Clean scrollbar */
+    /* Text inputs */
+    .stTextInput input {
+        background: #2d2d2d !important;
+        border: 1px solid #404040 !important;
+        color: #e8e8e8 !important;
+        border-radius: 8px;
+    }
+    
+    /* Scrollbar */
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
     }
     
     ::-webkit-scrollbar-track {
-        background: #F3F4F6;
+        background: #2d2d2d;
     }
     
     ::-webkit-scrollbar-thumb {
-        background: #2563EB;
+        background: #404040;
         border-radius: 4px;
     }
     
     ::-webkit-scrollbar-thumb:hover {
-        background: #1D4ED8;
+        background: #505050;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -244,30 +264,30 @@ def check_password():
     
     # Show login form
     st.markdown("""
-    <div class="custom-header">
-        <h1>🔒 SAI Quote Search - Login</h1>
-        <p>Enter your credentials to access the quote search system</p>
+    <div class="main-header">
+        <h1>🔒 SAI Quote Search</h1>
+        <p>Sign in to access the quote search system</p>
     </div>
     """, unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.markdown("### Welcome back!")
+        st.markdown("### Welcome back")
         username = st.text_input("Username", key="username")
         password = st.text_input("Password", type="password", key="password")
         
-        if st.button("Login", use_container_width=True):
+        if st.button("Sign in", use_container_width=True):
             if username in AUTHORIZED_USERS and AUTHORIZED_USERS[username] == password:
                 st.session_state.authenticated = True
                 st.session_state.current_user = username
-                st.success("✅ Login successful!")
+                st.success("✅ Signed in successfully")
                 st.rerun()
             else:
-                st.error("❌ Invalid username or password")
+                st.error("❌ Invalid credentials")
         
         st.markdown("---")
-        st.info("🔐 This system is for authorized SAI personnel only")
+        st.caption("🔐 For authorized SAI personnel only")
     
     return False
 
@@ -304,8 +324,6 @@ def search_quotes(query, top_k=5):
         return []
     
     try:
-        from azure.search.documents.models import VectorizedQuery
-        
         vector_query = VectorizedQuery(
             vector=embedding,
             k_nearest_neighbors=top_k,
@@ -325,8 +343,7 @@ def search_quotes(query, top_k=5):
         return []
 
 def display_quote_card(quote, score):
-    """Display a quote as a beautiful card using Streamlit components"""
-    # Extract data
+    """Display a quote card in dark mode"""
     quote_num = quote.get('quote_number', 'N/A')
     voltage = quote.get('voltage', 'N/A')
     amperage = quote.get('amperage', 'N/A')
@@ -334,95 +351,71 @@ def display_quote_card(quote, score):
     date = quote.get('quote_date', 'N/A')
     modules = quote.get('modules_summary', 'N/A')
     
-    # Create card container with custom styling
-    with st.container():
-        st.markdown(f"""
-        <div style='background: white; padding: 1.5rem; border-radius: 12px; border: 1px solid #E5E7EB; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1rem;'>
-            <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 2px solid #F3F4F6;'>
-                <div>
-                    <h3 style='color: #2563EB; margin: 0; font-size: 1.25rem;'>📋 {quote_num}</h3>
-                    <p style='color: #6B7280; margin: 0.25rem 0 0 0; font-size: 0.875rem;'>{modules}</p>
-                </div>
-                <div style='background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); color: white; padding: 0.5rem 1.25rem; border-radius: 20px; font-weight: 600; font-size: 0.875rem;'>
-                    {int(score * 100)}% match
-                </div>
+    st.markdown(f"""
+    <div class="quote-card">
+        <div class="quote-header">
+            <div>
+                <div class="quote-number">📋 {quote_num}</div>
+                <div class="quote-subtitle">{modules}</div>
+            </div>
+            <div class="match-badge">{int(score * 100)}% match</div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-bottom: 1rem;">
+            <div>
+                <div class="spec-label">⚡ Voltage</div>
+                <div class="spec-value">{voltage}</div>
+            </div>
+            <div>
+                <div class="spec-label">🔌 Amperage</div>
+                <div class="spec-value">{amperage}</div>
+            </div>
+            <div>
+                <div class="spec-label">📅 Date</div>
+                <div class="spec-value">{date}</div>
             </div>
         </div>
-        """, unsafe_allow_html=True)
         
-        # Specs in columns with clear labels
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown("**⚡ Voltage**")
-            st.markdown(f"<p style='font-size: 1.25rem; font-weight: 600; color: #1F2937; margin: 0;'>{voltage}</p>", unsafe_allow_html=True)
-        with col2:
-            st.markdown("**🔌 Amperage**")
-            st.markdown(f"<p style='font-size: 1.25rem; font-weight: 600; color: #1F2937; margin: 0;'>{amperage}</p>", unsafe_allow_html=True)
-        with col3:
-            st.markdown("**📅 Date**")
-            st.markdown(f"<p style='font-size: 1.25rem; font-weight: 600; color: #1F2937; margin: 0;'>{date}</p>", unsafe_allow_html=True)
-        
-        # Dimensions in info box
-        if dimensions and dimensions != 'N/A':
-            st.markdown("")  # Spacing
-            st.markdown("**📏 Dimensions**")
-            st.info(dimensions)
-        
-        st.markdown("---")
+        {f'<div><div class="spec-label">📏 Dimensions</div><div class="spec-value" style="font-size: 0.9rem; margin-top: 0.5rem;">{dimensions}</div></div>' if dimensions != 'N/A' else ''}
+    </div>
+    """, unsafe_allow_html=True)
 
 def generate_response(query, search_results):
     """Generate AI response based on search results"""
     if not search_results:
-        return "I couldn't find any quotes matching those specifications. Try:\n- Different voltage (e.g., 480V, 12.47kV)\n- Different amperage range\n- Broader search terms"
+        return "I couldn't find any quotes matching those specifications. Try different voltage, amperage, or broader search terms."
     
-    # Build context from top 3 results
-    quotes_summary = []
-    for r in search_results[:3]:
-        quote_num = r.get('quote_number', 'Unknown')
-        voltage = r.get('voltage', 'N/A')
-        amperage = r.get('amperage', 'N/A')
-        dimensions = r.get('dimensions_text', 'N/A')
-        nema = r.get('modules_summary', '')
-        
-        summary = f"**{quote_num}**: {voltage}, {amperage}"
-        if dimensions != 'N/A':
-            dims_short = dimensions.split('|')[0].strip() if '|' in dimensions else dimensions
-            summary += f", {dims_short}"
-        quotes_summary.append(summary)
-    
-    context = "\n".join([
-        f"- {summary}" 
-        for summary in quotes_summary
+    context = "\n\n".join([
+        f"Quote {r.get('quote_number')}: {r.get('voltage')}, {r.get('amperage')}\n"
+        f"Dimensions: {r.get('dimensions_text')}\n"
+        f"Details: {r.get('modules_summary')}"
+        for r in search_results[:3]
     ])
     
     try:
         response = openai.ChatCompletion.create(
             engine=AZURE_OPENAI_DEPLOYMENT,
             messages=[
-                {"role": "system", "content": "You are a helpful SAI switchgear specialist. Provide brief, clear summaries of quotes. Focus on key specs. Be conversational and helpful."},
-                {"role": "user", "content": f"Based on these quotes:\n{context}\n\nUser asked: {query}\n\nProvide a brief, helpful response (2-3 sentences max)."}
+                {"role": "system", "content": "You are a helpful assistant for SAI Advanced Power Solutions. Help users find relevant switchgear quotes. Be concise and highlight key specs."},
+                {"role": "user", "content": f"Based on these quotes:\n\n{context}\n\nAnswer: {query}"}
             ],
             temperature=0.7,
-            max_tokens=200
+            max_tokens=500
         )
         return response.choices[0].message.content
     except:
-        return f"Found {len(search_results)} matching quotes. Here are the most relevant options:"
+        return f"I found {len(search_results)} similar quotes based on your search."
 
 # Header
 st.markdown("""
-<div class="custom-header">
+<div class="main-header">
     <h1>SAI Quote Search</h1>
-    <p>Find similar switchgear quotes instantly using AI</p>
+    <p>Find similar switchgear quotes using AI-powered search</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Main chat interface
-st.markdown("### 💬 Ask me about quotes")
-st.markdown("*Try: 'Show me 480V quotes with NEMA 1 enclosure' or 'Find quotes similar to CF Industries'*")
-
 # Chat input
-user_input = st.chat_input("What quotes are you looking for?")
+user_input = st.chat_input("Search for quotes... (e.g., '480V NEMA 1' or '90 inch height')")
 
 if user_input:
     # Add user message
@@ -447,29 +440,28 @@ for message in st.session_state.messages:
     else:
         st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
         
-        # Display quote cards if available
+        # Display quote cards
         if "results" in message and message["results"]:
-            st.markdown("---")
             for result in message["results"]:
                 display_quote_card(result, result.get('@search.score', 0.8))
 
-# Sidebar with filters
+# Sidebar
 with st.sidebar:
-    st.markdown(f"### 👤 Logged in as: {st.session_state.get('current_user', 'User')}")
+    st.markdown(f"### 👤 {st.session_state.get('current_user', 'User')}")
     
-    if st.button("🚪 Logout"):
+    if st.button("🚪 Sign out"):
         st.session_state.authenticated = False
         st.session_state.current_user = None
         st.rerun()
     
     st.markdown("---")
-    st.markdown("### 🔍 Filters")
-    st.markdown("*Coming soon: Filter by voltage, customer, date range*")
-    
-    st.markdown("---")
     st.markdown("### 📊 Stats")
-    st.info(f"💬 {len(st.session_state.messages)} messages")
+    st.caption(f"💬 {len(st.session_state.messages)} messages in this session")
     
-    if st.button("🗑️ Clear Chat"):
+    if st.button("🗑️ Clear chat"):
         st.session_state.messages = []
         st.rerun()
+    
+    st.markdown("---")
+    st.caption("SAI Advanced Power Solutions")
+    st.caption("Quote Search System v2.0")

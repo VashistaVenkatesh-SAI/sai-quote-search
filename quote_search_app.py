@@ -325,7 +325,7 @@ def search_quotes(query, top_k=5):
         return []
 
 def display_quote_card(quote, score):
-    """Display a quote as a beautiful card"""
+    """Display a quote as a beautiful card using Streamlit components"""
     # Extract data
     quote_num = quote.get('quote_number', 'N/A')
     voltage = quote.get('voltage', 'N/A')
@@ -334,37 +334,32 @@ def display_quote_card(quote, score):
     date = quote.get('quote_date', 'N/A')
     modules = quote.get('modules_summary', 'N/A')
     
-    st.markdown(f"""
-    <div class="quote-card">
-        <div class="quote-header">
-            <div>
-                <div class="quote-number">{quote_num}</div>
-                <div class="quote-project">{modules}</div>
-            </div>
-            <div class="relevance-badge">{int(score * 100)}% match</div>
-        </div>
+    with st.container():
+        # Header with quote number and match score
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown(f"### 🔷 {quote_num}")
+            st.caption(f"{modules}")
+        with col2:
+            st.markdown(f"<div style='text-align: right; background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); color: white; padding: 0.5rem 1rem; border-radius: 20px; font-weight: 600; font-size: 0.9rem;'>{int(score * 100)}% match</div>", unsafe_allow_html=True)
         
-        <div class="spec-grid">
-            <div class="spec-item">
-                <div class="spec-label">Voltage</div>
-                <div class="spec-value">{voltage}</div>
-            </div>
-            <div class="spec-item">
-                <div class="spec-label">Amperage</div>
-                <div class="spec-value">{amperage}</div>
-            </div>
-            <div class="spec-item">
-                <div class="spec-label">Date</div>
-                <div class="spec-value">{date}</div>
-            </div>
-        </div>
+        st.divider()
         
-        <div class="spec-item" style="margin-top: 1rem;">
-            <div class="spec-label">Dimensions</div>
-            <div class="spec-value">{dimensions}</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        # Specs in columns
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("⚡ Voltage", voltage)
+        with col2:
+            st.metric("🔌 Amperage", amperage)
+        with col3:
+            st.metric("📅 Date", date)
+        
+        # Dimensions
+        if dimensions and dimensions != 'N/A':
+            st.markdown("**📏 Dimensions:**")
+            st.info(dimensions)
+        
+        st.markdown("---")
 
 def generate_response(query, search_results):
     """Generate AI response based on search results"""
@@ -469,57 +464,3 @@ with st.sidebar:
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = []
         st.rerun()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

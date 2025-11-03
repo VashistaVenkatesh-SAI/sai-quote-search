@@ -343,7 +343,7 @@ def search_quotes(query, top_k=5):
         return []
 
 def display_quote_card(quote, score):
-    """Display a quote card in dark mode"""
+    """Display a quote card using native Streamlit components"""
     quote_num = quote.get('quote_number', 'N/A')
     voltage = quote.get('voltage', 'N/A')
     amperage = quote.get('amperage', 'N/A')
@@ -351,34 +351,33 @@ def display_quote_card(quote, score):
     date = quote.get('quote_date', 'N/A')
     modules = quote.get('modules_summary', 'N/A')
     
-    st.markdown(f"""
-    <div class="quote-card">
-        <div class="quote-header">
-            <div>
-                <div class="quote-number">📋 {quote_num}</div>
-                <div class="quote-subtitle">{modules}</div>
-            </div>
-            <div class="match-badge">{int(score * 100)}% match</div>
-        </div>
+    # Create expandable container
+    with st.expander(f"📋 **{quote_num}** — {int(score * 100)}% match", expanded=True):
+        st.caption(modules)
         
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-bottom: 1rem;">
-            <div>
-                <div class="spec-label">⚡ Voltage</div>
-                <div class="spec-value">{voltage}</div>
-            </div>
-            <div>
-                <div class="spec-label">🔌 Amperage</div>
-                <div class="spec-value">{amperage}</div>
-            </div>
-            <div>
-                <div class="spec-label">📅 Date</div>
-                <div class="spec-value">{date}</div>
-            </div>
-        </div>
+        # Specs in columns
+        col1, col2, col3 = st.columns(3)
         
-        {f'<div><div class="spec-label">📏 Dimensions</div><div class="spec-value" style="font-size: 0.9rem; margin-top: 0.5rem;">{dimensions}</div></div>' if dimensions != 'N/A' else ''}
-    </div>
-    """, unsafe_allow_html=True)
+        with col1:
+            st.markdown("**⚡ Voltage**")
+            st.markdown(f"`{voltage}`")
+        
+        with col2:
+            st.markdown("**🔌 Amperage**")
+            st.markdown(f"`{amperage}`")
+        
+        with col3:
+            st.markdown("**📅 Date**")
+            st.markdown(f"`{date}`")
+        
+        # Dimensions
+        if dimensions and dimensions != 'N/A':
+            st.markdown("**📏 Dimensions**")
+            dims_list = dimensions.split(" | ")
+            for dim in dims_list:
+                st.markdown(f"- {dim}")
+        
+        st.markdown("")  # Spacing
 
 def generate_response(query, search_results):
     """Generate AI response based on search results"""

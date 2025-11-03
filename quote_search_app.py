@@ -265,7 +265,7 @@ def check_password():
     # Show login form
     st.markdown("""
     <div class="main-header">
-        <h1>🔒 SAI Quote Search</h1>
+        <h1>SAI Quote Search</h1>
         <p>Sign in to access the quote search system</p>
     </div>
     """, unsafe_allow_html=True)
@@ -281,13 +281,13 @@ def check_password():
             if username in AUTHORIZED_USERS and AUTHORIZED_USERS[username] == password:
                 st.session_state.authenticated = True
                 st.session_state.current_user = username
-                st.success("✅ Signed in successfully")
+                st.success("Signed in successfully")
                 st.rerun()
             else:
-                st.error("❌ Invalid credentials")
+                st.error("Invalid credentials")
         
         st.markdown("---")
-        st.caption("🔐 For authorized SAI personnel only")
+        st.caption("For authorized SAI personnel only")
     
     return False
 
@@ -352,27 +352,27 @@ def display_quote_card(quote, score):
     modules = quote.get('modules_summary', 'N/A')
     
     # Create expandable container
-    with st.expander(f"📋 **{quote_num}** — {int(score * 100)}% match", expanded=True):
+    with st.expander(f"**{quote_num}** — {int(score * 100)}% match", expanded=True):
         st.caption(modules)
         
         # Specs in columns
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.markdown("**⚡ Voltage**")
+            st.markdown("**Voltage**")
             st.markdown(f"`{voltage}`")
         
         with col2:
-            st.markdown("**🔌 Amperage**")
+            st.markdown("**Amperage**")
             st.markdown(f"`{amperage}`")
         
         with col3:
-            st.markdown("**📅 Date**")
+            st.markdown("**Date**")
             st.markdown(f"`{date}`")
         
         # Dimensions
         if dimensions and dimensions != 'N/A':
-            st.markdown("**📏 Dimensions**")
+            st.markdown("**Dimensions**")
             dims_list = dimensions.split(" | ")
             for dim in dims_list:
                 st.markdown(f"- {dim}")
@@ -446,9 +446,9 @@ for message in st.session_state.messages:
 
 # Sidebar
 with st.sidebar:
-    st.markdown(f"### 👤 {st.session_state.get('current_user', 'User')}")
+    st.markdown(f"### {st.session_state.get('current_user', 'User')}")
     
-    if st.button("🚪 Sign out"):
+    if st.button("Sign out"):
         st.session_state.authenticated = False
         st.session_state.current_user = None
         st.rerun()
@@ -456,7 +456,7 @@ with st.sidebar:
     st.markdown("---")
     
     # File upload section
-    st.markdown("### 📤 Upload New Quote")
+    st.markdown("### Upload New Quote")
     uploaded_file = st.file_uploader(
         "Drop PDF here",
         type=['pdf'],
@@ -464,7 +464,7 @@ with st.sidebar:
     )
     
     if uploaded_file is not None:
-        if st.button("🔍 Upload & Search Similar", use_container_width=True):
+        if st.button("Upload & Search Similar", use_container_width=True):
             with st.spinner("Uploading and searching..."):
                 try:
                     # Upload to raw container
@@ -480,18 +480,18 @@ with st.sidebar:
                         blob_client = raw_container.get_blob_client(uploaded_file.name)
                         blob_client.upload_blob(uploaded_file.getvalue(), overwrite=True)
                         
-                        st.success(f"✅ Uploaded: {uploaded_file.name}")
-                        st.info("🔄 File is being processed. Check back in 2-3 minutes for it to appear in search results.")
+                        st.success(f"Uploaded: {uploaded_file.name}")
+                        st.info("File is being processed. Check back in 2-3 minutes for it to appear in search results.")
                         
                         # Try to extract basic info and search for similar
-                        st.markdown("### 🔍 Searching for similar quotes...")
+                        st.markdown("### Searching for similar quotes...")
                         
                         # Search by filename patterns
                         search_query = uploaded_file.name.replace('.pdf', '').replace('_', ' ')
                         results = search_quotes(search_query, top_k=3)
                         
                         if results:
-                            st.markdown("**📊 Similar existing quotes:**")
+                            st.markdown("**Similar existing quotes:**")
                             for result in results:
                                 with st.expander(f"📋 {result.get('quote_number')} — {result.get('voltage')}, {result.get('amperage')}"):
                                     st.markdown(f"**Dimensions:** {result.get('dimensions_text')}")
@@ -505,10 +505,10 @@ with st.sidebar:
                     st.error(f"❌ Upload failed: {str(e)}")
     
     st.markdown("---")
-    st.markdown("### 📊 Stats")
-    st.caption(f"💬 {len(st.session_state.messages)} messages in this session")
+    st.markdown("### Stats")
+    st.caption(f"{len(st.session_state.messages)} messages in this session")
     
-    if st.button("🗑️ Clear chat"):
+    if st.button("Clear chat"):
         st.session_state.messages = []
         st.rerun()
     

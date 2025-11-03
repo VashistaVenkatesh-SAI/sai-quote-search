@@ -96,7 +96,7 @@ st.markdown("""
     
     /* Message bubbles - User */
     .user-message {
-        background: #2563EB;
+        background: #000000;
         color: white;
         padding: 1rem 1.25rem;
         border-radius: 18px;

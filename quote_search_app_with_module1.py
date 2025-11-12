@@ -306,22 +306,38 @@ def extract_text_from_pdf(pdf_file):
 
 def extract_specs_from_text(text):
     """Use Azure OpenAI to extract specifications from quote text"""
-    system_prompt = """You are an electrical switchgear specification extractor.
+    system_prompt = """You are an expert electrical switchgear specification extractor for SAI APS Module 1 box building.
 
-Extract these details from the quote:
-- Dimensions (Height x Width x Depth) for each section
-- Breaker types and quantities
-- Mount type (Fixed or Drawout)
-- Access type (Front only or Front and rear)
-- NEMA rating
-- UL rating
+CRITICAL FEATURES TO EXTRACT (in priority order):
+1. HEIGHT - Look for: "90\"H", "78\"H", "90 inches high", etc.
+2. WIDTH - Look for: "40\"W", "30\"W", "42\"W", "40 inches wide", etc.
+3. DEPTH - Look for: "60\"D", "48\"D", "33\"D", "60 inches deep", etc.
+4. BREAKER TYPE & QUANTITY - Look for:
+   - "ABB SACE Emax 6.2" or "Emax 6.2" or "E6.2"
+   - "ABB SACE Emax 2.2" or "Emax 2.2" or "E2.2"
+   - "ABB SACE Tmax" or "Tmax XT7/XT5/XT4/XT2"
+   - "Square D" or "Square D P Frame" or "Square D L Frame"
+   - Quantity: (1), (2), (3), or "multiple"
+5. MOUNT TYPE - Look for: "fixed mount", "drawout", "draw-out", "removable"
+6. ACCESS TYPE - Look for: "front and rear access", "front only", "rear access", "dual access"
 
-Output as JSON with this structure:
+IMPORTANT PATTERNS:
+- Dimensions often appear as: "90H x 40W x 60D" or "90\"H x 40\"W x 60\"D"
+- Breakers often appear as: "(1) ICCB - ABB SACE Emax 6.2"
+- Section identifiers: "Section 101", "Section 102", etc.
+
+Extract ALL sections from the quote. Each section may have different dimensions.
+
+Output as JSON:
 {
   "sections": [
     {
       "identifier": "Section 101",
-      "dimensions": {"height": "90", "width": "40", "depth": "60"},
+      "dimensions": {
+        "height": "90",
+        "width": "40",
+        "depth": "60"
+      },
       "main_circuit_breaker": {
         "type": "ABB SACE Emax 6.2",
         "quantity": 1
@@ -331,9 +347,16 @@ Output as JSON with this structure:
   "special_construction_requirements": ["fixed mount", "front and rear access"]
 }"""
 
-    user_prompt = f"""Extract specifications from this quote:
+    user_prompt = f"""Extract MODULE 1 BOX BUILDING specifications from this quote.
 
-{text[:10000]}
+Focus on finding:
+- Exact dimensions (H x W x D) for each section
+- Breaker types and quantities
+- Mount type (fixed or drawout)
+- Access type (front only or front and rear)
+
+Quote text:
+{text[:12000]}
 
 Return complete JSON with all technical details."""
     
@@ -375,9 +398,23 @@ def display_bom_card(bom_data):
     # If no exact match, show selection buttons
     status = bom_data.get('status')
     matched_assemblies = bom_data.get('matched_assemblies', [])
+    extracted_features = bom_data.get('extracted_features', {})
     
     if status in ['ambiguous', 'no_match'] and matched_assemblies:
-        # Show selection buttons for user to choose
+        # Show what was detected
+        st.markdown("### 📋 Detected Specifications:")
+        det_col1, det_col2, det_col3, det_col4 = st.columns(4)
+        with det_col1:
+            st.metric("Height", f"{extracted_features.get('height', '?')}\"")
+        with det_col2:
+            st.metric("Width", f"{extracted_features.get('width', '?')}\"")
+        with det_col3:
+            st.metric("Depth", f"{extracted_features.get('depth', '?')}\"")
+        with det_col4:
+            breaker = extracted_features.get('breaker_type', 'Not specified')
+            st.metric("Breaker", breaker[:20] if len(breaker) > 20 else breaker)
+        
+        st.markdown("---")
         st.markdown("### 🔍 Select an assembly:")
         
         matcher = get_matcher()
@@ -395,9 +432,31 @@ def display_bom_card(bom_data):
                     specs = matcher.assembly_specs[assembly_num]
                     
                     with cols[j]:
+                        # Calculate match score
+                        match_score = 0
+                        total_possible = 4
+                        
+                        height_match = extracted_features.get('height') == specs['height']
+                        width_match = extracted_features.get('width') == specs['width']
+                        depth_match = extracted_features.get('depth') == specs['depth']
+                        breaker_match = False
+                        
+                        if extracted_features.get('breaker_type'):
+                            breaker_match = extracted_features['breaker_type'].upper() in specs['breaker_type'].upper() or specs['breaker_type'].upper() in extracted_features['breaker_type'].upper()
+                        
+                        if height_match:
+                            match_score += 1
+                        if width_match:
+                            match_score += 1
+                        if depth_match:
+                            match_score += 1
+                        if breaker_match:
+                            match_score += 1
+                        
+                        match_pct = int((match_score / total_possible) * 100)
+                        
                         # Create button with assembly info
-                        button_text = f"**{assembly_num}**"
-                        if st.button(button_text, key=f"select_{assembly_num}_{idx}", use_container_width=True):
+                        if st.button(f"**{assembly_num}**\n{match_pct}% Match", key=f"select_{assembly_num}_{idx}", use_container_width=True):
                             # Generate BOM for selected assembly
                             selected_bom = matcher.generate_bom(assembly_num)
                             
@@ -419,10 +478,14 @@ def display_bom_card(bom_data):
                             
                             st.rerun()
                         
-                        # Show specs below button
-                        st.caption(f"{specs['height']}\"H × {specs['width']}\"W × {specs['depth']}\"D")
-                        st.caption(f"{specs['breaker_type'][:30]}...")
-                        st.caption(f"{specs['mount']} | {specs['access']}")
+                        # Show match details with indicators
+                        st.caption("**Match Details:**")
+                        st.caption(f"{'✅' if height_match else '❌'} Height: {specs['height']}\"")
+                        st.caption(f"{'✅' if width_match else '❌'} Width: {specs['width']}\"")
+                        st.caption(f"{'✅' if depth_match else '❌'} Depth: {specs['depth']}\"")
+                        st.caption(f"{'✅' if breaker_match else '❌'} Breaker: {specs['breaker_type'][:20]}...")
+                        st.caption(f"Mount: {specs['mount']}")
+                        st.caption(f"Access: {specs['access']}")
         
         return  # Exit early, don't show BOM card yet
     
@@ -483,13 +546,29 @@ def display_bom_card(bom_data):
             """, unsafe_allow_html=True)
     
     # Export button
-    if st.button("📥 Export BOM to JSON", key=f"export_{bom['assembly_number']}"):
-        json_str = json.dumps(bom, indent=2, ensure_ascii=False)
+    if st.button("📥 Export BOM to CSV", key=f"export_{bom['assembly_number']}"):
+        # Create CSV content
+        import io
+        csv_buffer = io.StringIO()
+        
+        # Write header
+        csv_buffer.write("Item,Part Number,Description,Quantity\n")
+        
+        # Write components
+        for i, comp in enumerate(bom['components'], 1):
+            part_num = comp['part_number'].replace(',', ';')  # Escape commas
+            desc = comp.get('description', '').replace(',', ';').replace('\n', ' ')
+            qty = comp['quantity']
+            csv_buffer.write(f"{i},{part_num},{desc},{qty}\n")
+        
+        csv_str = csv_buffer.getvalue()
+        
         st.download_button(
-            label="Download JSON",
-            data=json_str,
-            file_name=f"{bom['assembly_number']}_BOM.json",
-            mime="application/json"
+            label="📥 Download CSV",
+            data=csv_str,
+            file_name=f"{bom['assembly_number']}_BOM.csv",
+            mime="text/csv",
+            key=f"download_{bom['assembly_number']}"
         )
 
 def generate_embedding(text):

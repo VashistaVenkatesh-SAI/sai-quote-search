@@ -209,8 +209,8 @@ def load_training_document():
     """Load training document from GitHub repo"""
     try:
         from docx import Document
-        doc = Document('AI_Chatbot_Training_Module1_Assembly_Selection.docx') 
-
+        doc = Document('AI_Chatbot_Training_Module1_Assembly_Selection.docx')
+        
         full_text = []
         for para in doc.paragraphs:
             if para.text.strip():
@@ -292,37 +292,34 @@ def extract_text_from_pdf(pdf_file):
         return None
 
 def extract_specs_from_text(text):
-    """Extract specifications using training document"""
+    """Extract specifications and explain matching using training document"""
     
     # Load ACTUAL training document
     training_doc = load_training_document()
     
     if training_doc:
-        training_content = training_doc[:12000]  # First 12K characters
+        training_content = training_doc[:15000]  # Use more of the doc
     else:
-        # Fallback if doc not found
-        training_content = """
-10 Module 1 Assemblies:
-123456-0100-101: 90"H x 40"W x 60"D, (1) Emax 6.2, Fixed, Front/Rear
-123456-0100-102: 90"H x 40"W x 60"D, (3) Emax 2.2, Fixed, Front/Rear
-123456-0100-103: 90"H x 40"W x 60"D, (2) Emax 2.2, Fixed, Front/Rear
-123456-0100-201: 90"H x 40"W x 60"D, (1) Emax 6.2, Drawout, Front only
-123456-0100-202: 90"H x 40"W x 60"D, (1) Emax 2.2, Drawout, Front only
-123456-0100-203: 90"H x 40"W x 60"D, (2) Emax 2.2, Drawout, Front only
-123456-0100-204: 90"H x 42"W x 60"D, Multiple Tmax, Fixed, Front only
-123456-0100-301: 90"H x 30"W x 48"D, (1) Emax 2.2, Drawout, Front/Rear
-123456-0100-302: 90"H x 42"W x 48"D, Multiple Tmax, Fixed, Front/Rear
-123456-0100-401: 78"H x 42"W x 33"D, Square D, Fixed, Front only
-"""
+        training_content = "Training document not available."
 
-    system_prompt = f"""You extract switchgear specifications for Module 1 assembly matching.
+    system_prompt = f"""You are an expert at matching switchgear quotes to Module 1 assemblies using the training document.
 
-TRAINING DOCUMENT:
+COMPLETE TRAINING DOCUMENT:
 {training_content}
 
-Use the patterns and examples above to extract specifications accurately.
+YOUR TASK:
+1. Read the quote and extract specifications
+2. Compare to the examples and patterns in the training document
+3. Determine which assembly from the training doc matches
+4. EXPLAIN your reasoning by referencing the training document
 
-Output JSON:
+When you find a match, explain it like this:
+"Based on the training document, this quote matches Assembly [NUMBER] because:
+- The training doc Example [X] shows that quotes with [these features] match Assembly [NUMBER]
+- Your quote has: [extracted features]
+- According to the training document's matching rules, [explain why it matches]"
+
+Extract specs as JSON AND provide explanation:
 {{
   "sections": [
     {{
@@ -331,17 +328,18 @@ Output JSON:
       "main_circuit_breaker": {{"type": "ABB SACE Emax 6.2", "quantity": 1}}
     }}
   ],
-  "special_construction_requirements": ["fixed mount", "front and rear access"]
+  "special_construction_requirements": ["fixed mount", "front and rear access"],
+  "reasoning": "Based on training document Example 1 (page X), quotes with 90H x 40W x 60D and Emax 6.2 match Assembly 123456-0100-101. The training doc shows this configuration requires fixed mount and front/rear access, which this quote has."
 }}
 
-Extract dimensions as numbers only. Count breaker quantities carefully."""
+CRITICAL: Always reference the training document in your reasoning. Show which example or pattern you used."""
 
-    user_prompt = f"""Extract Module 1 specifications from this quote.
+    user_prompt = f"""Using the training document as your guide, extract specs from this quote AND explain which assembly it matches and WHY based on the training document.
 
 Quote:
 {text[:12000]}
 
-Return JSON following training document patterns."""
+Return JSON with specs AND reasoning that references the training document."""
     
     try:
         response = openai.ChatCompletion.create(
@@ -351,7 +349,7 @@ Return JSON following training document patterns."""
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.0,
-            max_tokens=2000,
+            max_tokens=2500,
             timeout=30
         )
         
@@ -615,10 +613,14 @@ with st.sidebar:
                     text = extract_text_from_pdf(uploaded_pdf)
                     
                     if text:
-                        with st.spinner("🤖 Extracting specs..."):
+                        with st.spinner("🤖 Analyzing with training document..."):
                             specs_json = extract_specs_from_text(text)
                             
                             if specs_json:
+                                # Show AI reasoning if available
+                                if 'reasoning' in specs_json:
+                                    st.info(f"**AI Analysis:**\n\n{specs_json['reasoning']}")
+                                
                                 with st.spinner("🔍 Matching to Module 1..."):
                                     module1_result = match_quote_to_assembly(specs_json)
                                     
@@ -627,6 +629,12 @@ with st.sidebar:
                                     if features.get('breaker_type'):
                                         feature_text += f", {features['breaker_type']}"
                                     
+                                    # Add AI reasoning to message if available
+                                    ai_reasoning = specs_json.get('reasoning', '')
+                                    full_message = module1_result['message']
+                                    if ai_reasoning:
+                                        full_message = f"{ai_reasoning}\n\n{full_message}"
+                                    
                                     st.session_state.messages.append({
                                         "role": "user",
                                         "content": f"📄 {uploaded_pdf.name}\n{feature_text}"
@@ -634,7 +642,7 @@ with st.sidebar:
                                     
                                     st.session_state.messages.append({
                                         "role": "assistant",
-                                        "content": module1_result['message'],
+                                        "content": full_message,
                                         "module1_result": module1_result,
                                         "type": "module1"
                                     })

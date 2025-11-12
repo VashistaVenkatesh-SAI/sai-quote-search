@@ -1187,6 +1187,6 @@ if user_input:
 # Footer
 st.markdown("""
 <div class="footer-text">
-    SAI Advanced Power Solutions • Voltrix v1.2
+    SAI Advanced Power Solutions • v1.2
 </div>
 """, unsafe_allow_html=True)

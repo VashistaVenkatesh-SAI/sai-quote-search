@@ -860,7 +860,7 @@ def display_bom_card(bom_data, unique_id=None):
 st.markdown('<div class="top-left-controls"></div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns([0.7, 0.7, 0.8])
 with col1:
-    if st.button("👤", key="signout_top", help="Sign out"):
+    if st.button("🙋🏽‍♂️", key="signout_top", help="Sign out"):
         st.session_state.authenticated = False
         st.session_state.current_user = None
         st.rerun()

@@ -1153,21 +1153,28 @@ if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
 
 # Chat input - main search bar
 user_input = st.chat_input("What do you want to know?")
-    for asm_num in sorted(matcher.assembly_specs.keys()):
-        specs = matcher.assembly_specs[asm_num]
-        assembly_list += f"**{asm_num}**: {specs['height']}\"H × {specs['width']}\"W × {specs['depth']}\"D - {specs['breaker_type']}\n\n"
-            
-        st.session_state.messages.append({"role": "user", "content": "List all assemblies"})
-        st.session_state.messages.append({"role": "assistant", "content": assembly_list, "type": "text"})
-        st.rerun()
 
-# Show generate button only when file is uploaded
-if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
-    with col3:
-        if st.button("Generate BOM", key="gen_bom"):
-            st.session_state.trigger_pdf_process = True
-            st.session_state.current_pdf = uploaded_pdf
-            st.rerun()
+# Handle text input
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    
+    if MODULE1_AVAILABLE:
+        with st.spinner("Matching to Module 1 assembly..."):
+            module1_result = match_from_user_input(user_input)
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": module1_result['message'],
+                "module1_result": module1_result,
+                "type": "module1"
+            })
+    else:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "Module 1 matching not available.",
+            "type": "error"
+        })
+    st.rerun()
 
 # Footer
 st.markdown("""

@@ -913,22 +913,36 @@ def display_bom_card(bom_data, unique_id=None):
             key=download_key
         )
 
-# Top Left Controls - Fixed position clean and modern
-st.markdown('<div class="top-left-controls"></div>', unsafe_allow_html=True)
-col1, col2, col3 = st.columns([0.7, 0.7, 0.8])
+# Top Left Controls - Absolute positioning
+st.markdown("""
+<style>
+.top-controls-container {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 9999;
+    display: flex;
+    gap: 0.5rem;
+}
+</style>
+<div class="top-controls-container">
+""", unsafe_allow_html=True)
+
+col1, col2, col3 = st.columns(3)
 with col1:
-    if st.button("👤", key="signout_top", help="Sign out"):
+    if st.button("Sign out", key="signout_top"):
         st.session_state.authenticated = False
         st.session_state.current_user = None
         st.rerun()
 with col2:
-    if st.button("🗑️", key="clear_top", help="Clear chat"):
+    if st.button("Clear", key="clear_top"):
         st.session_state.messages = []
         st.rerun()
 with col3:
     msg_count = len(st.session_state.messages)
-    st.button(f"📊 {msg_count}", key="stats_top", disabled=True, help="Message count")
+    st.button(f"Stats ({msg_count})", key="stats_top", disabled=True)
 
+st.markdown("</div>", unsafe_allow_html=True)
 st.markdown("<div style='height: 5rem;'></div>", unsafe_allow_html=True)
 
 # Centered Logo
@@ -939,12 +953,76 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Chat input - main search bar
-user_input = st.chat_input("What do you want to know?")
+# Display chat history FIRST
+for message in st.session_state.messages:
+    if message["role"] == "user":
+        st.markdown(f'<div class="user-message">{message["content"]}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
+        
+        # Handle single BOM
+        if message.get("type") == "module1" and "module1_result" in message:
+            display_bom_card(message["module1_result"])
+        
+        # Handle multiple BOMs (multi-section quotes)
+        elif message.get("type") == "multi_bom":
+            # Display matched BOMs
+            if "all_boms" in message and message["all_boms"]:
+                for idx, bom_data in enumerate(message["all_boms"]):
+                    st.markdown(f"### {bom_data['section_id']}")
+                    
+                    # Create module1_result format for display with unique ID
+                    module1_result = {
+                        'status': 'exact_match',
+                        'bom': bom_data['bom'],
+                        'message': f"{bom_data['section_id']}: Assembly {bom_data['assembly']}",
+                        'match_percentage': bom_data.get('match_percentage', None)
+                    }
+                    
+                    # Pass unique ID to avoid duplicate widget keys
+                    unique_id = f"{bom_data['section_id']}_{bom_data['assembly']}_{idx}"
+                    display_bom_card(module1_result, unique_id=unique_id)
+                    st.markdown("---")
+            
+            # Display no-match sections with suggestions
+            if "no_match_sections" in message and message["no_match_sections"]:
+                st.markdown("### Sections Without Exact Match")
+                
+                for no_match in message["no_match_sections"]:
+                    st.markdown(f"""
+                    <div style="background: #2d2d2d; border: 2px solid #EF4444; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+                        <div style="font-size: 1.125rem; font-weight: 600; color: #EF4444; margin-bottom: 0.5rem;">
+                            {no_match['section_id']}
+                        </div>
+                        <div style="color: #b0b0b0; margin-bottom: 1rem;">
+                            Match Confidence: {no_match['match_percentage']}% (Below 40% threshold)
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if no_match.get('suggested'):
+                        st.markdown("**Suggested Alternatives:**")
+                        
+                        for sugg in no_match['suggested'][:3]:
+                            assembly_num = sugg['assembly']
+                            reason = sugg['reason']
+                            sugg_pct = sugg.get('match_pct', 0)
+                            
+                            st.markdown(f"""
+                            <div style="background: #2d2d2d; border-left: 3px solid #F59E0B; padding: 1rem; margin: 0.5rem 0; border-radius: 6px;">
+                                <div style="font-weight: 600; color: #F59E0B;">Assembly {assembly_num} ({sugg_pct}% match)</div>
+                                <div style="color: #b0b0b0; font-size: 0.9rem; margin-top: 0.25rem;">{reason}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    
+                    st.markdown("---")
 
-# Action buttons directly below search
-st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
 
+# Search bar with integrated action buttons at BOTTOM
+st.markdown("### ")  # Spacing
+
+# Action buttons integrated with search area
 col1, col2, col3, col_space = st.columns([1.2, 1.2, 1, 5])
 
 with col1:
@@ -958,7 +1036,7 @@ with col1:
         
 with col2:
     if MODULE1_AVAILABLE:
-        if st.button("📋 List Assemblies", key="list_asm"):
+        if st.button("List Assemblies", key="list_asm"):
             matcher = get_matcher()
             assembly_list = "**Available Module 1 Assemblies:**\n\n"
             for asm_num in sorted(matcher.assembly_specs.keys()):
@@ -972,10 +1050,13 @@ with col2:
 # Show generate button only when file is uploaded
 if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
     with col3:
-        if st.button("🔧 Generate", key="gen_bom"):
+        if st.button("Generate BOM", key="gen_bom"):
             st.session_state.trigger_pdf_process = True
             st.session_state.current_pdf = uploaded_pdf
             st.rerun()
+
+# Chat input - main search bar
+user_input = st.chat_input("What do you want to know?")
 
 st.markdown("<div style='height: 3rem;'></div>", unsafe_allow_html=True)
 

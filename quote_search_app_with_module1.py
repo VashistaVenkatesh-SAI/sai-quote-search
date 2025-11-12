@@ -163,7 +163,7 @@ st.markdown("""
     .stChatInput > div {
         background: var(--surface);
         border: 1px solid var(--border);
-        border-radius: 30px !important;
+        border-radius: 50px !important;
         padding: 0.25rem 0.5rem;
     }
     

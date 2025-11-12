@@ -1,13 +1,14 @@
 """
-SAI Module 1 BOM Generator
+SAI Module 1 BOM Generator - COMPLETE VERSION
 Upload quote PDFs or type specifications for instant BOM generation
-Uses AI_Chatbot_Training_Module1_Assembly_Selection.docx for matching
+Uses Module1_Training_Examples.xlsx for matching
 """
 import streamlit as st
 import openai
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
+import pandas as pd
 import json
 import re
 import io
@@ -205,29 +206,34 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data
-def load_training_document():
-    """Load training document from GitHub repo"""
+def load_training_examples():
+    """Load training examples from Excel"""
     try:
-        from docx import Document
-        doc = Document('AI_Chatbot_Training_Module1_Assembly_Selection.docx')
+        df = pd.read_excel('Module1_Training_Examples.xlsx', sheet_name='Examples')
         
-        full_text = []
-        for para in doc.paragraphs:
-            if para.text.strip():
-                full_text.append(para.text.strip())
+        # Convert to dictionary grouped by assembly
+        examples_dict = {}
+        for _, row in df.iterrows():
+            assembly = row['Assembly_Number']
+            example = row['Example_Quote_Snippet']
+            
+            if assembly not in examples_dict:
+                examples_dict[assembly] = []
+            examples_dict[assembly].append(example)
         
-        # Also get tables
-        for table in doc.tables:
-            for row in table.rows:
-                cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-                if cells:
-                    full_text.append(' | '.join(cells))
+        # Create formatted text for AI with ALL examples
+        examples_text = "MODULE 1 TRAINING EXAMPLES:\n\n"
+        for assembly, examples in sorted(examples_dict.items()):
+            examples_text += f"Assembly {assembly}:\n"
+            for i, example in enumerate(examples, 1):
+                examples_text += f"  Example {i}: \"{example}\"\n"
+            examples_text += "\n"
         
-        content = '\n'.join(full_text)
-        return content
+        return examples_text, examples_dict
         
     except Exception as e:
-        return None
+        st.error(f"⚠️ Could not load training examples: {e}")
+        return None, None
 
 def check_password():
     """Authentication"""
@@ -292,34 +298,57 @@ def extract_text_from_pdf(pdf_file):
         return None
 
 def extract_specs_from_text(text):
-    """Extract specifications and explain matching using training document"""
+    """Extract specifications and match to examples from Excel"""
     
-    # Load ACTUAL training document
-    training_doc = load_training_document()
+    # Load training examples from Excel
+    examples_text, examples_dict = load_training_examples()
     
-    if training_doc:
-        training_content = training_doc[:15000]  # Use more of the doc
+    if not examples_text:
+        st.warning("⚠️ Training examples not found - using fallback")
+        examples_text = """10 assemblies available:
+123456-0100-101: 90H x 40W x 60D, Emax 6.2
+123456-0100-102: 90H x 40W x 60D, (3) Emax 2.2
+123456-0100-103: 90H x 40W x 60D, (2) Emax 2.2
+123456-0100-201: 90H x 40W x 60D, Emax 6.2, Drawout
+123456-0100-202: 90H x 40W x 60D, Emax 2.2, Drawout
+123456-0100-203: 90H x 40W x 60D, (2) Emax 2.2, Drawout
+123456-0100-204: 90H x 42W x 60D, Tmax
+123456-0100-301: 90H x 30W x 48D, Emax 2.2
+123456-0100-302: 90H x 42W x 48D, Tmax
+123456-0100-401: 78H x 42W x 33D, Square D"""
     else:
-        training_content = "Training document not available."
+        st.success("✅ Loaded training examples from Excel")
 
-    system_prompt = f"""You are an expert at matching switchgear quotes to Module 1 assemblies using the training document.
+    system_prompt = f"""You match switchgear quotes to Module 1 assemblies using training examples.
 
-COMPLETE TRAINING DOCUMENT:
-{training_content}
+{examples_text}
 
 YOUR TASK:
-1. Read the quote and extract specifications
-2. Compare to the examples and patterns in the training document
-3. Determine which assembly from the training doc matches
-4. EXPLAIN your reasoning by referencing the training document
+1. Read the customer quote carefully
+2. Compare it to ALL the training examples above
+3. Find which example most closely matches
+4. Extract the specifications
+5. EXPLAIN which assembly and example you matched to and WHY
 
-When you find a match, explain it like this:
-"Based on the training document, this quote matches Assembly [NUMBER] because:
-- The training doc Example [X] shows that quotes with [these features] match Assembly [NUMBER]
-- Your quote has: [extracted features]
-- According to the training document's matching rules, [explain why it matches]"
+IMPORTANT: When you find a match, provide detailed reasoning:
 
-Extract specs as JSON AND provide explanation:
+"This quote matches Assembly [NUMBER] based on Example [X]:
+
+Training Example [X] shows: '[exact example text]'
+
+Your quote contains:
+- Dimensions: [what you found] → [matches/doesn't match]
+- Breaker type: [what you found] → [matches/doesn't match]  
+- Breaker quantity: [what you found] → [matches/doesn't match]
+- Mount type: [what you found] → [matches/doesn't match]
+- Access type: [what you found] → [matches/doesn't match]
+
+Match reasoning:
+[Explain in detail why this example matches the quote]
+
+Therefore, this is Assembly [NUMBER]."
+
+Return JSON:
 {{
   "sections": [
     {{
@@ -329,17 +358,22 @@ Extract specs as JSON AND provide explanation:
     }}
   ],
   "special_construction_requirements": ["fixed mount", "front and rear access"],
-  "reasoning": "Based on training document Example 1 (page X), quotes with 90H x 40W x 60D and Emax 6.2 match Assembly 123456-0100-101. The training doc shows this configuration requires fixed mount and front/rear access, which this quote has."
+  "matched_assembly": "123456-0100-101",
+  "matched_example_number": "1",
+  "matched_example_text": "[the exact example text that matched]",
+  "reasoning": "[Your detailed explanation of why this example matches, referencing the training examples]"
 }}
 
-CRITICAL: Always reference the training document in your reasoning. Show which example or pattern you used."""
+CRITICAL: Always include matched_assembly, matched_example_number, matched_example_text, and detailed reasoning."""
 
-    user_prompt = f"""Using the training document as your guide, extract specs from this quote AND explain which assembly it matches and WHY based on the training document.
+    user_prompt = f"""Compare this quote to the training examples and explain which assembly and example it matches.
+
+Be specific about which example number you used and why it matches.
 
 Quote:
-{text[:12000]}
+{text[:15000]}
 
-Return JSON with specs AND reasoning that references the training document."""
+Return complete JSON with matched example and detailed reasoning."""
     
     try:
         response = openai.ChatCompletion.create(
@@ -349,7 +383,7 @@ Return JSON with specs AND reasoning that references the training document."""
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.0,
-            max_tokens=2500,
+            max_tokens=3000,
             timeout=30
         )
         
@@ -543,11 +577,11 @@ def display_bom_card(bom_data):
         )
 
 # Header
-module1_badge = '<span class="module1-badge">BOM Generator</span>' if MODULE1_AVAILABLE else ''
+module1_badge = '<span class="module1-badge">Excel Examples</span>' if MODULE1_AVAILABLE else ''
 st.markdown(f"""
 <div class="main-header">
     <h1>SAI Module 1 {module1_badge}</h1>
-    <p>Upload quote PDFs or type specifications for instant BOM generation</p>
+    <p>Upload quote PDFs for instant BOM generation using AI training examples</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -598,7 +632,7 @@ with st.sidebar:
     # PDF Upload
     if MODULE1_AVAILABLE and PDF_AVAILABLE:
         st.markdown("### 📤 Upload Quote PDF")
-        st.caption("Get instant Module 1 BOM")
+        st.caption("AI will match to training examples")
         
         uploaded_pdf = st.file_uploader(
             "Drop quote PDF here",
@@ -613,15 +647,18 @@ with st.sidebar:
                     text = extract_text_from_pdf(uploaded_pdf)
                     
                     if text:
-                        with st.spinner("🤖 Analyzing with training document..."):
+                        with st.spinner("🤖 Analyzing with training examples..."):
                             specs_json = extract_specs_from_text(text)
                             
                             if specs_json:
-                                # Show AI reasoning if available
+                                # Show AI reasoning with matched example
                                 if 'reasoning' in specs_json:
-                                    st.info(f"**AI Analysis:**\n\n{specs_json['reasoning']}")
+                                    st.info(f"**🎯 AI Match Analysis:**\n\n{specs_json['reasoning']}")
                                 
-                                with st.spinner("🔍 Matching to Module 1..."):
+                                if 'matched_example_text' in specs_json:
+                                    st.success(f"**📋 Training Example Used:**\n\n\"{specs_json['matched_example_text']}\"")
+                                
+                                with st.spinner("🔍 Generating BOM..."):
                                     module1_result = match_quote_to_assembly(specs_json)
                                     
                                     features = module1_result.get('extracted_features', {})
@@ -629,10 +666,14 @@ with st.sidebar:
                                     if features.get('breaker_type'):
                                         feature_text += f", {features['breaker_type']}"
                                     
-                                    # Add AI reasoning to message if available
+                                    # Add AI reasoning to message
                                     ai_reasoning = specs_json.get('reasoning', '')
+                                    matched_example = specs_json.get('matched_example_text', '')
+                                    
                                     full_message = module1_result['message']
-                                    if ai_reasoning:
+                                    if ai_reasoning and matched_example:
+                                        full_message = f"**Matched Training Example:**\n\"{matched_example}\"\n\n**AI Analysis:**\n{ai_reasoning}\n\n{full_message}"
+                                    elif ai_reasoning:
                                         full_message = f"{ai_reasoning}\n\n{full_message}"
                                     
                                     st.session_state.messages.append({
@@ -694,4 +735,4 @@ with st.sidebar:
     
     st.markdown("---")
     st.caption("SAI Advanced Power Solutions")
-    st.caption("Module 1 BOM Generator v3.0")
+    st.caption("Module 1 BOM Generator v4.0")

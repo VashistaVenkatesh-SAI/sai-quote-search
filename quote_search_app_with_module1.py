@@ -884,7 +884,7 @@ def display_bom_card(bom_data, unique_id=None):
             <div class="component-item">
                 <span style="color: #b0b0b0; font-size: 0.85rem;">#{i}</span>
                 <span class="component-number">{comp['part_number']}</span>
-                <span style="color: #b0b0b0; margin-left: 1rem;">Qty: {comp['quantity']}</span>
+                <span style="color: #b0b0b0; margin-right: 1rem;">Qty: {comp['quantity']}</span>
                 <div style="color: #b0b0b0; font-size: 0.85rem; margin-top: 0.25rem;">{comp.get('description', '')[:80]}</div>
             </div>
             """, unsafe_allow_html=True)
@@ -1153,30 +1153,6 @@ if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
 
 # Chat input - main search bar
 user_input = st.chat_input("What do you want to know?")
-                        </div>
-                        <div style="color: #b0b0b0; margin-bottom: 1rem;">
-                            Match Confidence: {no_match['match_percentage']}% (Below 40% threshold)
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    if no_match.get('suggested'):
-                        st.markdown("** Suggested Alternatives:**")
-                        
-                        for sugg in no_match['suggested'][:3]:
-                            assembly_num = sugg['assembly']
-                            reason = sugg['reason']
-                            sugg_pct = sugg.get('match_pct', 0)
-                            
-                            st.markdown(f"""
-                            <div style="background: #2d2d2d; border-left: 3px solid #F59E0B; padding: 1rem; margin: 0.5rem 0; border-radius: 6px;">
-                                <div style="font-weight: 600; color: #F59E0B;">Assembly {assembly_num} ({sugg_pct}% match)</div>
-                                <div style="color: #b0b0b0; font-size: 0.9rem; margin-top: 0.25rem;">{reason}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                    
-                    st.markdown("---")
-
 # Footer
 st.markdown("""
 <div class="footer-text">

@@ -44,7 +44,7 @@ openai.api_version = "2024-02-01"
 
 # Page config
 st.set_page_config(
-    page_title="Voltrix",
+    page_title="Voltrix BOM Generator",
     page_icon="V",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -527,7 +527,7 @@ def check_password():
     
     st.markdown("""
     <div class="app-header">
-        <h1>Voltrix</h1>
+        <h1>Voltrix BOM Generator</h1>
         <p>Sign in to access the automated BOM generation system</p>
     </div>
     """, unsafe_allow_html=True)
@@ -949,7 +949,7 @@ st.markdown("<div style='height: 5rem;'></div>", unsafe_allow_html=True)
 st.markdown("""
 <div class="app-logo">
     <h1>Voltrix</h1>
-    <div class="app-logo-badge"></div>
+    <div class="app-logo-badge">BOM Generator</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1179,6 +1179,6 @@ if user_input:
 # Footer
 st.markdown("""
 <div class="footer-text">
-    SAI Advanced Power Solutions • Voltrix v1.2
+    SAI Advanced Power Solutions • Voltrix BOM Generator v9.0
 </div>
 """, unsafe_allow_html=True)

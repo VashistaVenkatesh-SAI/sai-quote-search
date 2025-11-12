@@ -1,6 +1,7 @@
 """
-SAI Quote Search - WITH PDF UPLOAD + INSTANT MODULE 1 BOM
-Upload PDF → Extract Specs → Match Assembly → Generate BOM
+SAI Module 1 BOM Generator
+Upload quote PDFs or type specifications for instant BOM generation
+Uses AI_Chatbot_Training_Module1_Assembly_Selection.docx for matching
 """
 import streamlit as st
 import openai
@@ -9,7 +10,7 @@ from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
 import json
 import re
-from io import BytesIO
+import io
 
 # Module 1 Matcher
 try:
@@ -17,7 +18,6 @@ try:
     MODULE1_AVAILABLE = True
 except ImportError:
     MODULE1_AVAILABLE = False
-    st.error("⚠️ Module1Matcher.py not found. Module 1 matching disabled.")
 
 # PDF Processing
 try:
@@ -26,7 +26,7 @@ try:
 except ImportError:
     PDF_AVAILABLE = False
 
-# Configuration from Streamlit secrets
+# Configuration
 SEARCH_ENDPOINT = st.secrets["SEARCH_ENDPOINT"]
 SEARCH_KEY = st.secrets["SEARCH_KEY"]
 INDEX_NAME = st.secrets["INDEX_NAME"]
@@ -34,8 +34,6 @@ AZURE_OPENAI_ENDPOINT = st.secrets["AZURE_OPENAI_ENDPOINT"]
 AZURE_OPENAI_KEY = st.secrets["AZURE_OPENAI_KEY"]
 AZURE_OPENAI_DEPLOYMENT = st.secrets["AZURE_OPENAI_DEPLOYMENT"]
 AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS = st.secrets["AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS"]
-
-# Password protection
 AUTHORIZED_USERS = st.secrets["AUTHORIZED_USERS"]
 
 openai.api_type = "azure"
@@ -51,19 +49,16 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# [KEEPING ALL YOUR EXISTING CSS - Same as before]
+# CSS Styling
 st.markdown("""
 <style>
-    /* Claude Dark Mode Colors */
     :root {
         --bg-primary: #1e1e1e;
         --bg-secondary: #2d2d2d;
-        --bg-tertiary: #3a3a3a;
         --text-primary: #e8e8e8;
         --text-secondary: #b0b0b0;
         --accent-blue: #2563EB;
         --accent-green: #10B981;
-        --accent-yellow: #F59E0B;
         --border-color: #404040;
     }
     
@@ -179,38 +174,6 @@ st.markdown("""
         font-weight: 600;
     }
     
-    .status-ambiguous {
-        background: #F59E0B;
-        color: white;
-        padding: 0.375rem 0.875rem;
-        border-radius: 16px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-    
-    .status-nomatch {
-        background: #EF4444;
-        color: white;
-        padding: 0.375rem 0.875rem;
-        border-radius: 16px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-    
-    .quote-card {
-        background: #2d2d2d;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        border: 1px solid #404040;
-        transition: all 0.2s;
-    }
-    
-    .quote-card:hover {
-        border-color: #2563EB;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-    }
-    
     .stButton > button {
         background: #2563EB;
         color: white;
@@ -228,7 +191,6 @@ st.markdown("""
     
     ::-webkit-scrollbar {
         width: 8px;
-        height: 8px;
     }
     
     ::-webkit-scrollbar-track {
@@ -242,8 +204,33 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+@st.cache_data
+def load_training_document():
+    """Load training document from GitHub repo"""
+    try:
+        from docx import Document
+        doc = Document('AI_Chatbot_Training_Module1_Assembly_Selection.docx') 
+
+        full_text = []
+        for para in doc.paragraphs:
+            if para.text.strip():
+                full_text.append(para.text.strip())
+        
+        # Also get tables
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                if cells:
+                    full_text.append(' | '.join(cells))
+        
+        content = '\n'.join(full_text)
+        return content
+        
+    except Exception as e:
+        return None
+
 def check_password():
-    """Returns True if user is authenticated"""
+    """Authentication"""
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
     
@@ -293,7 +280,7 @@ if not check_password():
     st.stop()
 
 def extract_text_from_pdf(pdf_file):
-    """Extract text from uploaded PDF"""
+    """Extract text from PDF"""
     try:
         pdf_reader = PyPDF2.PdfReader(pdf_file)
         text = ""
@@ -305,219 +292,56 @@ def extract_text_from_pdf(pdf_file):
         return None
 
 def extract_specs_from_text(text):
-    """Use Azure OpenAI to extract specifications with complete training document context"""
+    """Extract specifications using training document"""
     
-    # Full training document reference
-    training_content = """
-=== MODULE 1 ASSEMBLY SELECTION TRAINING ===
-
-CORE CONCEPT: You perform ASSEMBLY SELECTION, not part-by-part BOM building.
-Each Assembly Number is a complete pre-configured box. Your job is to MATCH the quote to the correct Assembly Number.
-
-=== 10 COMPLETE ASSEMBLY SPECIFICATIONS ===
-
-Assembly 123456-0100-101 | UL891-S41A Section 101
-• Dimensions: 90"H x 40"W x 60"D
-• Breaker: (1) ABB SACE Emax 6.2
-• Mount: Fixed
-• Access: Front and rear
-• Total Parts: 31
-
-Assembly 123456-0100-102 | UL891-S41A Section 102
-• Dimensions: 90"H x 40"W x 60"D
-• Breaker: (3) ABB SACE Emax 2.2
-• Mount: Fixed
-• Access: Front and rear
-• Total Parts: 29
-
-Assembly 123456-0100-103 | UL891-S41A Section 103
-• Dimensions: 90"H x 40"W x 60"D
-• Breaker: (2) ABB SACE Emax 2.2
-• Mount: Fixed
-• Access: Front and rear
-• Total Parts: 29
-
-Assembly 123456-0100-201 | UL891-S41B Section 101
-• Dimensions: 90"H x 40"W x 60"D
-• Breaker: (1) ABB SACE Emax 6.2
-• Mount: Drawout
-• Access: Front only
-• Total Parts: 25
-
-Assembly 123456-0100-202 | UL891-S41B Section 102
-• Dimensions: 90"H x 40"W x 60"D
-• Breaker: (1) ABB SACE Emax 2.2
-• Mount: Drawout
-• Access: Front only
-• Total Parts: 25
-
-Assembly 123456-0100-203 | UL891-S41B Section 103
-• Dimensions: 90"H x 40"W x 60"D
-• Breaker: (2) ABB SACE Emax 2.2
-• Mount: Drawout
-• Access: Front only
-• Total Parts: 27
-
-Assembly 123456-0100-204 | UL891-S41B Section 104
-• Dimensions: 90"H x 42"W x 60"D
-• Breaker: Multiple ABB SACE Tmax (XT7, XT5, XT4, XT2)
-• Mount: Fixed
-• Access: Front only
-• Total Parts: 17
-
-Assembly 123456-0100-301 | UL891-S4S1 Section 101
-• Dimensions: 90"H x 30"W x 48"D
-• Breaker: (1) ABB SACE Emax 2.2
-• Mount: Drawout
-• Access: Front and rear
-• Total Parts: 26
-
-Assembly 123456-0100-302 | UL891-S4S1 Section 102
-• Dimensions: 90"H x 42"W x 48"D
-• Breaker: Multiple ABB SACE Tmax (XT5, XT4, XT2)
-• Mount: Fixed
-• Access: Front and rear
-• Total Parts: 18
-
-Assembly 123456-0100-401 | 400kW GVX BYPASS Section 101
-• Dimensions: 78"H x 42"W x 33"D
-• Breaker: Square D P Frame & L Frame
-• Mount: Fixed
-• Access: Front only
-• Total Parts: 15
-
-=== MATCHING PRIORITY (ALL MUST MATCH) ===
-1. HEIGHT: 90" (most) or 78" (only Assembly 401)
-2. WIDTH: 30", 40", or 42"
-3. DEPTH: 33", 48", or 60"
-4. BREAKER TYPE & QUANTITY: Exact match required
-5. ACCESS TYPE: Front only OR Front and rear
-6. MOUNT TYPE: Fixed OR Drawout
-
-=== DIMENSION PATTERNS IN QUOTES ===
-• "90\"H x 40\"W x 60\"D" or "90H x 40W x 60D"
-• "90 inches H, 40 inches W, 60 inches D"
-• "Height: 90\", Width: 40\", Depth: 60\""
-• "90 x 40 x 60" (assumes H x W x D order)
-
-=== BREAKER PATTERNS IN QUOTES ===
-ABB SACE Emax 6.2:
-• "ABB SACE Emax 6.2", "ABB Emax 6.2", "Emax 6.2", "E6.2"
-• "(1) ICCB - ABB SACE Emax 6.2" means quantity = 1
-
-ABB SACE Emax 2.2:
-• "ABB SACE Emax 2.2", "ABB Emax 2.2", "Emax 2.2", "E2.2"
-• "(2) Emax 2.2" means quantity = 2
-• "(3) Emax 2.2" means quantity = 3
-
-ABB SACE Tmax:
-• "ABB SACE Tmax XT7", "Tmax XT5", "Multiple Tmax"
-• "MCCB" (Molded Case Circuit Breaker)
-
-Square D:
-• "Square D P Frame", "Square D L Frame"
-• "Square D Molded Case Circuit Breaker"
-
-=== ACCESS TYPE PATTERNS ===
-Front and rear:
-• "front and rear access", "front/rear access", "front & rear"
-• "dual access", "rear access available"
-
-Front only:
-• "front access only", "front access", "single access"
-
-=== MOUNT TYPE PATTERNS ===
-Fixed:
-• "fixed mount", "fixed breaker", "stationary"
-
-Drawout:
-• "drawout mount", "draw-out", "removable breaker"
-
-=== EXAMPLE 1: PERFECT MATCH ===
-Quote: "90\"H x 40\"W x 60\"D, ABB SACE Emax 6.2, fixed mount, front and rear access, seismic bracing"
-Extract:
-  height: "90"
-  width: "40"
-  depth: "60"
-  breaker_type: "ABB SACE Emax 6.2"
-  breaker_quantity: 1
-  mount: "fixed mount"
-  access: "front and rear access"
-Result: Assembly 123456-0100-101 ✅
-
-=== EXAMPLE 2: AMBIGUOUS (NEED MORE INFO) ===
-Quote: "90 inches high, 40 inches wide, 60 inches deep, one ABB Emax 6.2 breaker"
-Extract:
-  height: "90"
-  width: "40"
-  depth: "60"
-  breaker_type: "ABB SACE Emax 6.2"
-  breaker_quantity: 1
-  mount: NOT SPECIFIED
-  access: NOT SPECIFIED
-Potential: Assembly 101 OR Assembly 201
-Result: Need clarification on mount and access
-
-=== EXAMPLE 3: MULTIPLE BREAKERS ===
-Quote: "90H x 40W x 60D, Section 102: (3) ABB SACE Emax 2.2, fixed, front and rear"
-Extract:
-  height: "90"
-  width: "40"
-  depth: "60"
-  breaker_type: "ABB SACE Emax 2.2"
-  breaker_quantity: 3
-  mount: "fixed mount"
-  access: "front and rear access"
-Result: Assembly 123456-0100-102 ✅
-
-=== CRITICAL EXTRACTION RULES ===
-1. Extract dimensions as NUMBERS ONLY: "90", "40", "60" (no quotes, no units)
-2. Normalize breaker names: always use "ABB SACE Emax X.X" format
-3. Count breaker quantity carefully: (1), (2), or (3)
-4. If mount/access not in quote, leave empty - DON'T GUESS
-5. Look for section identifiers: "Section 101", "Section 102", etc.
-6. Ignore UL891, NEMA 1, Seismic - ALL assemblies have these
+    # Load ACTUAL training document
+    training_doc = load_training_document()
+    
+    if training_doc:
+        training_content = training_doc[:12000]  # First 12K characters
+    else:
+        # Fallback if doc not found
+        training_content = """
+10 Module 1 Assemblies:
+123456-0100-101: 90"H x 40"W x 60"D, (1) Emax 6.2, Fixed, Front/Rear
+123456-0100-102: 90"H x 40"W x 60"D, (3) Emax 2.2, Fixed, Front/Rear
+123456-0100-103: 90"H x 40"W x 60"D, (2) Emax 2.2, Fixed, Front/Rear
+123456-0100-201: 90"H x 40"W x 60"D, (1) Emax 6.2, Drawout, Front only
+123456-0100-202: 90"H x 40"W x 60"D, (1) Emax 2.2, Drawout, Front only
+123456-0100-203: 90"H x 40"W x 60"D, (2) Emax 2.2, Drawout, Front only
+123456-0100-204: 90"H x 42"W x 60"D, Multiple Tmax, Fixed, Front only
+123456-0100-301: 90"H x 30"W x 48"D, (1) Emax 2.2, Drawout, Front/Rear
+123456-0100-302: 90"H x 42"W x 48"D, Multiple Tmax, Fixed, Front/Rear
+123456-0100-401: 78"H x 42"W x 33"D, Square D, Fixed, Front only
 """
 
-    system_prompt = f"""You are an expert at extracting specifications from switchgear quotes.
+    system_prompt = f"""You extract switchgear specifications for Module 1 assembly matching.
 
+TRAINING DOCUMENT:
 {training_content}
 
-YOUR TASK:
-Read the quote and extract specifications that match the patterns and examples above.
+Use the patterns and examples above to extract specifications accurately.
 
-CRITICAL:
-- Extract dimensions as numbers only: "90", "40", "60"
-- Match breaker patterns exactly as shown in examples
-- Count breaker quantities carefully
-- If mount/access type not specified, leave them empty
-- Look for ALL sections in multi-section quotes
-
-OUTPUT FORMAT:
+Output JSON:
 {{
   "sections": [
     {{
       "identifier": "Section 101",
       "dimensions": {{"height": "90", "width": "40", "depth": "60"}},
-      "main_circuit_breaker": {{
-        "type": "ABB SACE Emax 6.2",
-        "quantity": 1
-      }}
+      "main_circuit_breaker": {{"type": "ABB SACE Emax 6.2", "quantity": 1}}
     }}
   ],
   "special_construction_requirements": ["fixed mount", "front and rear access"]
 }}
 
-If mount or access not specified, use empty array for special_construction_requirements."""
+Extract dimensions as numbers only. Count breaker quantities carefully."""
 
-    user_prompt = f"""Extract Module 1 assembly specifications from this quote.
+    user_prompt = f"""Extract Module 1 specifications from this quote.
 
-Use the patterns and examples from the training document to guide your extraction.
+Quote:
+{text[:12000]}
 
-Quote text:
-{text[:15000]}
-
-Return JSON with extracted specifications."""
+Return JSON following training document patterns."""
     
     try:
         response = openai.ChatCompletion.create(
@@ -552,15 +376,15 @@ Return JSON with extracted specifications."""
         return None
 
 def display_bom_card(bom_data):
-    """Display Module 1 BOM in a beautiful card"""
+    """Display Module 1 BOM card with match explanations"""
     
-    # If no exact match, show selection buttons
     status = bom_data.get('status')
     matched_assemblies = bom_data.get('matched_assemblies', [])
     extracted_features = bom_data.get('extracted_features', {})
     
+    # Show selection buttons if multiple/no exact match
     if status in ['ambiguous', 'no_match'] and matched_assemblies:
-        # Show what was detected
+        # Show detected specs
         st.markdown("### 📋 Detected Specifications:")
         det_col1, det_col2, det_col3, det_col4 = st.columns(4)
         with det_col1:
@@ -577,8 +401,6 @@ def display_bom_card(bom_data):
         st.markdown("### 🔍 Select an assembly:")
         
         matcher = get_matcher()
-        
-        # Show up to 9 assemblies in 3 columns
         num_assemblies = min(len(matched_assemblies), 9)
         cols_per_row = 3
         
@@ -614,9 +436,8 @@ def display_bom_card(bom_data):
                         
                         match_pct = int((match_score / total_possible) * 100)
                         
-                        # Create button with assembly info
+                        # Button
                         if st.button(f"**{assembly_num}**\n{match_pct}% Match", key=f"select_{assembly_num}_{idx}", use_container_width=True):
-                            # Generate BOM for selected assembly
                             selected_bom = matcher.generate_bom(assembly_num)
                             
                             st.session_state.messages.append({
@@ -637,7 +458,7 @@ def display_bom_card(bom_data):
                             
                             st.rerun()
                         
-                        # Show match details with indicators
+                        # Match details
                         st.caption("**Match Details:**")
                         st.caption(f"{'✅' if height_match else '❌'} Height: {specs['height']}\"")
                         st.caption(f"{'✅' if width_match else '❌'} Width: {specs['width']}\"")
@@ -646,15 +467,13 @@ def display_bom_card(bom_data):
                         st.caption(f"Mount: {specs['mount']}")
                         st.caption(f"Access: {specs['access']}")
         
-        return  # Exit early, don't show BOM card yet
+        return  # Exit early
     
-    # Show actual BOM card if exact match
+    # Show BOM card for exact match
     if not bom_data or 'bom' not in bom_data or not bom_data['bom']:
         return
     
     bom = bom_data['bom']
-    
-    # Status badge
     badge_html = '<span class="status-exact">✅ Match Found</span>'
     
     st.markdown(f"""
@@ -663,7 +482,7 @@ def display_bom_card(bom_data):
             <div class="bom-title">🔧 Module 1 BOM</div>
             {badge_html}
         </div>
-        <div class="bom-assembly" style="font-size: 1.125rem; color: #e8e8e8; font-weight: 600;">
+        <div style="font-size: 1.125rem; color: #e8e8e8; font-weight: 600;">
             Assembly: {bom['assembly_number']}
         </div>
         <div style="color: #b0b0b0; margin-top: 0.5rem;">{bom['project']}</div>
@@ -704,18 +523,13 @@ def display_bom_card(bom_data):
             </div>
             """, unsafe_allow_html=True)
     
-    # Export button
+    # Export to CSV
     if st.button("📥 Export BOM to CSV", key=f"export_{bom['assembly_number']}"):
-        # Create CSV content
-        import io
         csv_buffer = io.StringIO()
-        
-        # Write header
         csv_buffer.write("Item,Part Number,Description,Quantity\n")
         
-        # Write components
         for i, comp in enumerate(bom['components'], 1):
-            part_num = comp['part_number'].replace(',', ';')  # Escape commas
+            part_num = comp['part_number'].replace(',', ';')
             desc = comp.get('description', '').replace(',', ';').replace('\n', ' ')
             qty = comp['quantity']
             csv_buffer.write(f"{i},{part_num},{desc},{qty}\n")
@@ -729,101 +543,6 @@ def display_bom_card(bom_data):
             mime="text/csv",
             key=f"download_{bom['assembly_number']}"
         )
-
-def generate_embedding(text):
-    """Generate embedding for search query"""
-    try:
-        response = openai.Embedding.create(
-            input=text,
-            engine=AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS
-        )
-        return response['data'][0]['embedding']
-    except Exception as e:
-        st.error(f"Error generating embedding: {e}")
-        return None
-
-def search_quotes(query, top_k=5):
-    """Search for similar quotes"""
-    embedding = generate_embedding(query)
-    if not embedding:
-        return []
-    
-    try:
-        vector_query = VectorizedQuery(
-            vector=embedding,
-            k_nearest_neighbors=top_k,
-            fields="content_vector"
-        )
-        
-        results = st.session_state.search_client.search(
-            search_text=query,
-            vector_queries=[vector_query],
-            select=["quote_number", "customer_name", "project_title", "quote_date", 
-                   "dimensions_text", "voltage", "amperage", "modules_summary", "full_content"],
-            top=top_k
-        )
-        return list(results)
-    except Exception as e:
-        st.error(f"Search error: {e}")
-        return []
-
-def display_quote_card(quote, score):
-    """Display a quote card"""
-    quote_num = quote.get('quote_number', 'N/A')
-    voltage = quote.get('voltage', 'N/A')
-    amperage = quote.get('amperage', 'N/A')
-    dimensions = quote.get('dimensions_text', 'N/A')
-    date = quote.get('quote_date', 'N/A')
-    modules = quote.get('modules_summary', 'N/A')
-    
-    with st.expander(f"**{quote_num}** — {int(score * 100)}% match", expanded=True):
-        st.caption(modules)
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("**Voltage**")
-            st.markdown(f"`{voltage}`")
-        
-        with col2:
-            st.markdown("**Amperage**")
-            st.markdown(f"`{amperage}`")
-        
-        with col3:
-            st.markdown("**Date**")
-            st.markdown(f"`{date}`")
-        
-        if dimensions and dimensions != 'N/A':
-            st.markdown("**Dimensions**")
-            dims_list = dimensions.split(" | ")
-            for dim in dims_list:
-                st.markdown(f"- {dim}")
-
-def generate_response(query, search_results):
-    """Generate AI response based on search results"""
-    if not search_results:
-        return "I couldn't find any quotes matching those specifications."
-    
-    context = "\n\n".join([
-        f"Quote {r.get('quote_number')}: {r.get('voltage')}, {r.get('amperage')}\n"
-        f"Dimensions: {r.get('dimensions_text')}\n"
-        f"Details: {r.get('modules_summary')}"
-        for r in search_results[:3]
-    ])
-    
-    try:
-        response = openai.ChatCompletion.create(
-            engine=AZURE_OPENAI_DEPLOYMENT,
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant for SAI Advanced Power Solutions. Help users find relevant switchgear quotes."},
-                {"role": "user", "content": f"Based on these quotes:\n\n{context}\n\nAnswer: {query}"}
-            ],
-            temperature=0.7,
-            max_tokens=500
-        )
-        return response.choices[0].message.content
-    except:
-        return f"I found {len(search_results)} similar quotes."
 
 # Header
 module1_badge = '<span class="module1-badge">BOM Generator</span>' if MODULE1_AVAILABLE else ''
@@ -853,7 +572,7 @@ if user_input:
     else:
         st.session_state.messages.append({
             "role": "assistant",
-            "content": "Module 1 matching is not available. Please check if Module1Matcher.py and Module 1.xlsx are present.",
+            "content": "Module 1 matching not available.",
             "type": "error"
         })
 
@@ -864,7 +583,6 @@ for message in st.session_state.messages:
     else:
         st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
         
-        # Only display Module 1 BOM cards
         if message.get("type") == "module1" and "module1_result" in message:
             display_bom_card(message["module1_result"])
 
@@ -879,7 +597,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # PDF UPLOAD FOR MODULE 1
+    # PDF Upload
     if MODULE1_AVAILABLE and PDF_AVAILABLE:
         st.markdown("### 📤 Upload Quote PDF")
         st.caption("Get instant Module 1 BOM")
@@ -887,33 +605,28 @@ with st.sidebar:
         uploaded_pdf = st.file_uploader(
             "Drop quote PDF here",
             type=['pdf'],
-            help="Upload quote PDF to automatically generate Module 1 BOM",
+            help="Upload quote to auto-generate BOM",
             key="pdf_uploader"
         )
         
         if uploaded_pdf is not None:
             if st.button("🔧 Generate BOM", use_container_width=True):
                 with st.spinner("📄 Reading PDF..."):
-                    # Extract text
                     text = extract_text_from_pdf(uploaded_pdf)
                     
                     if text:
-                        with st.spinner("🤖 Extracting specifications..."):
-                            # Extract specs
+                        with st.spinner("🤖 Extracting specs..."):
                             specs_json = extract_specs_from_text(text)
                             
                             if specs_json:
                                 with st.spinner("🔍 Matching to Module 1..."):
-                                    # Match to Module 1
                                     module1_result = match_quote_to_assembly(specs_json)
                                     
-                                    # Show extracted features for user
                                     features = module1_result.get('extracted_features', {})
                                     feature_text = f"Detected: {features.get('height', '?')}\"H x {features.get('width', '?')}\"W x {features.get('depth', '?')}\"D"
                                     if features.get('breaker_type'):
                                         feature_text += f", {features['breaker_type']}"
                                     
-                                    # Add to messages
                                     st.session_state.messages.append({
                                         "role": "user",
                                         "content": f"📄 {uploaded_pdf.name}\n{feature_text}"
@@ -928,13 +641,13 @@ with st.sidebar:
                                     
                                     st.rerun()
                             else:
-                                st.error("❌ Could not extract specs from PDF")
+                                st.error("❌ Could not extract specs")
                     else:
                         st.error("❌ Could not read PDF")
         
         st.markdown("---")
     
-    # Module 1 Quick Access
+    # Examples
     if MODULE1_AVAILABLE:
         st.markdown("### 💡 Example Queries")
         

@@ -1029,6 +1029,29 @@ if hasattr(st.session_state, 'trigger_pdf_process') and st.session_state.trigger
         else:
             st.error("Could not read PDF")
 
+# Handle text input
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    
+    if MODULE1_AVAILABLE:
+        with st.spinner("Matching to Module 1 assembly..."):
+            module1_result = match_from_user_input(user_input)
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": module1_result['message'],
+                "module1_result": module1_result,
+                "type": "module1"
+            })
+    else:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "Module 1 matching not available.",
+            "type": "error"
+        })
+    st.rerun()
+
+
 # Display chat history
 for message in st.session_state.messages:
     if message["role"] == "user":
@@ -1077,19 +1100,50 @@ for message in st.session_state.messages:
                     """, unsafe_allow_html=True)
                     
                     if no_match.get('suggested'):
-                        st.markdown("**Suggested Alternatives:**")
+                        st.markdown("**Suggested Alternatives - Pick one to generate BOM:**")
                         
-                        for sugg in no_match['suggested'][:3]:
+                        # Create columns for suggested assembly buttons
+                        cols = st.columns(len(no_match['suggested'][:3]))
+                        
+                        for idx, sugg in enumerate(no_match['suggested'][:3]):
                             assembly_num = sugg['assembly']
                             reason = sugg['reason']
                             sugg_pct = sugg.get('match_pct', 0)
                             
-                            st.markdown(f"""
-                            <div style="background: #2d2d2d; border-left: 3px solid #F59E0B; padding: 1rem; margin: 0.5rem 0; border-radius: 6px;">
-                                <div style="font-weight: 600; color: #F59E0B;">Assembly {assembly_num} ({sugg_pct}% match)</div>
-                                <div style="color: #b0b0b0; font-size: 0.9rem; margin-top: 0.25rem;">{reason}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                            with cols[idx]:
+                                if st.button(
+                                    f"{assembly_num}\n({sugg_pct}% match)",
+                                    key=f"select_{no_match['section_id']}_{assembly_num}",
+                                    use_container_width=True
+                                ):
+                                    # Generate BOM for selected assembly
+                                    try:
+                                        matcher = get_matcher()
+                                        selected_bom = matcher.generate_bom(assembly_num)
+                                        
+                                        # Add to messages
+                                        st.session_state.messages.append({
+                                            "role": "user",
+                                            "content": f"Generate BOM for {assembly_num} (selected from {no_match['section_id']} suggestions)"
+                                        })
+                                        
+                                        st.session_state.messages.append({
+                                            "role": "assistant",
+                                            "content": f"Generated BOM for Assembly {assembly_num}",
+                                            "module1_result": {
+                                                'status': 'exact_match',
+                                                'bom': selected_bom,
+                                                'message': f"BOM for {assembly_num}"
+                                            },
+                                            "type": "module1"
+                                        })
+                                        
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error generating BOM: {e}")
+                                
+                                # Show reason below button
+                                st.caption(reason)
                     
                     st.markdown("---")
 
@@ -1128,10 +1182,10 @@ if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
             st.session_state.current_pdf = uploaded_pdf
             st.rerun()
 
-# Chat input - at the bottom
+# Chat input - main search bar
 user_input = st.chat_input("What do you want to know?")
 
-# Handle text input immediately after defining it
+# Handle text input
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     
@@ -1156,6 +1210,6 @@ if user_input:
 # Footer
 st.markdown("""
 <div class="footer-text">
-    SAI Advanced Power Solutions • Voltrix BOM Generator v9.0
+    SAI Advanced Power Solutions • Voltrix BOM Generator v9.1
 </div>
 """, unsafe_allow_html=True)

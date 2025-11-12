@@ -326,11 +326,20 @@ ASSEMBLY REFERENCE DATA:
 
 YOUR TASK:
 1. Read the quote and identify ALL sections
-2. For EACH section, extract specifications and match to an assembly
-3. Explain your reasoning naturally without mentioning "training" or "examples"
+2. For EACH section, extract specifications and calculate match quality
+3. Calculate a match percentage (0-100%) based on how well specs align
+4. If match is below 40%, suggest 2-3 closest assemblies instead
+
+MATCH PERCENTAGE CALCULATION:
+- Dimensions match exactly: +25% each (Height, Width, Depth = 75% total)
+- Breaker type matches: +15%
+- Breaker quantity matches: +10%
+- 100% = perfect match, 75-99% = good match, 40-74% = partial match, <40% = no match
 
 For each section, explain like this:
-"Section [X] matches Assembly [NUMBER]:
+
+HIGH CONFIDENCE (≥75%):
+"Section [X] matches Assembly [NUMBER] (XX% match):
 
 Quote specifications:
 - Dimensions: [what you found]
@@ -338,7 +347,19 @@ Quote specifications:
 - Mount: [what you found]
 - Access: [what you found]
 
-This matches Assembly [NUMBER] because these specifications align with the [NUMBER] configuration which has [describe the assembly specs]."
+This matches Assembly [NUMBER] which has these exact specifications."
+
+LOW CONFIDENCE (<40%):
+"Section [X] has no exact match (<40% confidence):
+
+Quote specifications:
+- Dimensions: [what you found]
+- Breaker: [what you found]
+
+Closest assemblies:
+1. Assembly [NUMBER]: [specs] (XX% match - different [feature])
+2. Assembly [NUMBER]: [specs] (XX% match - different [feature])
+3. Assembly [NUMBER]: [specs] (XX% match - different [feature])"
 
 CRITICAL: Extract ALL sections from the quote. Most quotes have multiple sections (Section 101, 102, 103, etc.)
 
@@ -351,20 +372,29 @@ Return JSON with ALL sections:
       "main_circuit_breaker": {{"type": "ABB SACE Emax 6.2", "quantity": 1}},
       "special_requirements": ["fixed mount", "front and rear access"],
       "matched_assembly": "123456-0100-101",
-      "reasoning": "Section 101 has 90H x 40W x 60D dimensions with an Emax 6.2 breaker. This matches Assembly 123456-0100-101 which is designed for these exact specifications with fixed mount and front/rear access."
+      "match_percentage": 100,
+      "reasoning": "Section 101 has 90H x 40W x 60D dimensions with an Emax 6.2 breaker. This matches Assembly 123456-0100-101 perfectly."
     }},
     {{
-      "identifier": "Section 102",
-      "dimensions": {{"height": "90", "width": "42", "depth": "48"}},
-      "main_circuit_breaker": {{"type": "ABB SACE Tmax", "quantity": "multiple"}},
-      "special_requirements": ["fixed mount", "front and rear access"],
-      "matched_assembly": "123456-0100-302",
-      "reasoning": "Section 102 specifications align with Assembly 123456-0100-302..."
+      "identifier": "Section 104",
+      "dimensions": {{"height": "90", "width": "50", "depth": "70"}},
+      "main_circuit_breaker": {{"type": "Square D", "quantity": 1}},
+      "special_requirements": [],
+      "matched_assembly": null,
+      "match_percentage": 35,
+      "suggested_assemblies": [
+        {{"assembly": "123456-0100-401", "reason": "Closest dimensions (78H x 42W x 33D)", "match_pct": 35}},
+        {{"assembly": "123456-0100-302", "reason": "Similar width (42W)", "match_pct": 30}}
+      ],
+      "reasoning": "Section 104 has no exact match. The dimensions 90H x 50W x 70D don't match any available assembly. Closest option is Assembly 401 with 78H x 42W x 33D."
     }}
   ]
 }}
 
-Extract EVERY section mentioned in the quote."""
+IMPORTANT: 
+- Calculate match_percentage accurately (0-100)
+- If match_percentage < 40, set matched_assembly to null and provide suggested_assemblies
+- Always include reasoning that explains the match quality"""
 
     user_prompt = f"""Analyze this quote and identify ALL sections. For each section, determine which assembly it matches and explain why.
 
@@ -406,11 +436,12 @@ Return complete JSON with all sections and natural explanations."""
         return None
 
 def display_bom_card(bom_data, unique_id=None):
-    """Display Module 1 BOM card with match explanations"""
+    """Display Module 1 BOM card with match explanations and match percentage"""
     
     status = bom_data.get('status')
     matched_assemblies = bom_data.get('matched_assemblies', [])
     extracted_features = bom_data.get('extracted_features', {})
+    match_percentage = bom_data.get('match_percentage', None)  # NEW: Get match %
     
     # Show selection buttons if multiple/no exact match
     if status in ['ambiguous', 'no_match'] and matched_assemblies:
@@ -522,7 +553,12 @@ def display_bom_card(bom_data, unique_id=None):
         return
     
     bom = bom_data['bom']
-    badge_html = '<span class="status-exact">✅ Match Found</span>'
+    
+    # Create badge with match percentage if available
+    if match_percentage is not None:
+        badge_html = f'<span class="status-exact">✅ {match_percentage}% Match</span>'
+    else:
+        badge_html = '<span class="status-exact">✅ Match Found</span>'
     
     st.markdown(f"""
     <div class="bom-card">
@@ -639,21 +675,57 @@ for message in st.session_state.messages:
             display_bom_card(message["module1_result"])
         
         # Handle multiple BOMs (multi-section quotes)
-        elif message.get("type") == "multi_bom" and "all_boms" in message:
-            for idx, bom_data in enumerate(message["all_boms"]):
-                st.markdown(f"### 📦 {bom_data['section_id']}")
+        elif message.get("type") == "multi_bom":
+            # Display matched BOMs
+            if "all_boms" in message and message["all_boms"]:
+                for idx, bom_data in enumerate(message["all_boms"]):
+                    st.markdown(f"### 📦 {bom_data['section_id']}")
+                    
+                    # Create module1_result format for display with unique ID
+                    module1_result = {
+                        'status': 'exact_match',
+                        'bom': bom_data['bom'],
+                        'message': f"✅ {bom_data['section_id']}: Assembly {bom_data['assembly']}",
+                        'match_percentage': bom_data.get('match_percentage', None)
+                    }
+                    
+                    # Pass unique ID to avoid duplicate widget keys
+                    unique_id = f"{bom_data['section_id']}_{bom_data['assembly']}_{idx}"
+                    display_bom_card(module1_result, unique_id=unique_id)
+                    st.markdown("---")
+            
+            # Display no-match sections with suggestions
+            if "no_match_sections" in message and message["no_match_sections"]:
+                st.markdown("### ⚠️ Sections Without Exact Match")
                 
-                # Create module1_result format for display with unique ID
-                module1_result = {
-                    'status': 'exact_match',
-                    'bom': bom_data['bom'],
-                    'message': f"✅ {bom_data['section_id']}: Assembly {bom_data['assembly']}"
-                }
-                
-                # Pass unique ID to avoid duplicate widget keys
-                unique_id = f"{bom_data['section_id']}_{bom_data['assembly']}_{idx}"
-                display_bom_card(module1_result, unique_id=unique_id)
-                st.markdown("---")
+                for no_match in message["no_match_sections"]:
+                    st.markdown(f"""
+                    <div style="background: #2d2d2d; border: 2px solid #EF4444; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+                        <div style="font-size: 1.125rem; font-weight: 600; color: #EF4444; margin-bottom: 0.5rem;">
+                            🔍 {no_match['section_id']}
+                        </div>
+                        <div style="color: #b0b0b0; margin-bottom: 1rem;">
+                            Match Confidence: {no_match['match_percentage']}% (Below 40% threshold)
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if no_match.get('suggested'):
+                        st.markdown("**💡 Suggested Alternatives:**")
+                        
+                        for sugg in no_match['suggested'][:3]:
+                            assembly_num = sugg['assembly']
+                            reason = sugg['reason']
+                            sugg_pct = sugg.get('match_pct', 0)
+                            
+                            st.markdown(f"""
+                            <div style="background: #2d2d2d; border-left: 3px solid #F59E0B; padding: 1rem; margin: 0.5rem 0; border-radius: 6px;">
+                                <div style="font-weight: 600; color: #F59E0B;">Assembly {assembly_num} ({sugg_pct}% match)</div>
+                                <div style="color: #b0b0b0; font-size: 0.9rem; margin-top: 0.25rem;">{reason}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    
+                    st.markdown("---")
 
 # Sidebar
 with st.sidebar:
@@ -693,13 +765,17 @@ with st.sidebar:
                                 
                                 # Process EACH section
                                 all_boms = []
+                                no_match_sections = []
                                 
                                 for section in specs_json['sections']:
                                     section_id = section.get('identifier', 'Unknown')
                                     matched_assembly = section.get('matched_assembly', None)
+                                    match_pct = section.get('match_percentage', 0)
                                     reasoning = section.get('reasoning', '')
+                                    suggested = section.get('suggested_assemblies', [])
                                     
-                                    if matched_assembly:
+                                    # Only generate BOM if match percentage is good (≥40%)
+                                    if matched_assembly and match_pct >= 40:
                                         # Generate BOM for this section
                                         try:
                                             matcher = get_matcher()
@@ -709,41 +785,70 @@ with st.sidebar:
                                                 'section_id': section_id,
                                                 'assembly': matched_assembly,
                                                 'bom': section_bom,
-                                                'reasoning': reasoning
+                                                'reasoning': reasoning,
+                                                'match_percentage': match_pct
                                             })
                                             
                                         except Exception as e:
                                             st.warning(f"⚠️ Could not generate BOM for {section_id}: {e}")
+                                    else:
+                                        # Match too low or no match - store for suggestions
+                                        no_match_sections.append({
+                                            'section_id': section_id,
+                                            'reasoning': reasoning,
+                                            'match_percentage': match_pct,
+                                            'suggested': suggested,
+                                            'specs': section.get('dimensions', {})
+                                        })
+                                
+                                # Create summary message
+                                summary = f"📄 {uploaded_pdf.name}\n\n"
+                                if all_boms:
+                                    summary += f"✅ Matched {len(all_boms)} section(s):\n"
+                                    for bom_data in all_boms:
+                                        summary += f"• {bom_data['section_id']}: Assembly {bom_data['assembly']} ({bom_data['match_percentage']}%)\n"
+                                
+                                if no_match_sections:
+                                    summary += f"\n⚠️ {len(no_match_sections)} section(s) with no match:\n"
+                                    for no_match in no_match_sections:
+                                        summary += f"• {no_match['section_id']} ({no_match['match_percentage']}% - below threshold)\n"
+                                
+                                st.session_state.messages.append({
+                                    "role": "user",
+                                    "content": summary
+                                })
+                                
+                                # Add assistant message
+                                full_message = ""
                                 
                                 if all_boms:
-                                    # Create summary message
-                                    summary = f"📄 {uploaded_pdf.name}\n\nFound {len(all_boms)} sections:\n"
+                                    full_message += f"✅ Generated BOMs for {len(all_boms)} sections:\n\n"
                                     for bom_data in all_boms:
-                                        summary += f"• {bom_data['section_id']}: Assembly {bom_data['assembly']}\n"
-                                    
-                                    st.session_state.messages.append({
-                                        "role": "user",
-                                        "content": summary
-                                    })
-                                    
-                                    # Add assistant message with ALL BOMs
-                                    full_message = f"✅ Generated BOMs for {len(all_boms)} sections\n\n"
-                                    
-                                    for bom_data in all_boms:
-                                        full_message += f"**{bom_data['section_id']}** → Assembly {bom_data['assembly']}\n"
+                                        full_message += f"**{bom_data['section_id']}** → Assembly {bom_data['assembly']} ({bom_data['match_percentage']}% match)\n"
                                         if bom_data['reasoning']:
                                             full_message += f"{bom_data['reasoning']}\n\n"
-                                    
-                                    st.session_state.messages.append({
-                                        "role": "assistant",
-                                        "content": full_message,
-                                        "all_boms": all_boms,  # Store ALL BOMs
-                                        "type": "multi_bom"
-                                    })
-                                    
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Could not match any sections to assemblies")
+                                
+                                if no_match_sections:
+                                    full_message += f"\n⚠️ **{len(no_match_sections)} section(s) with no exact match:**\n\n"
+                                    for no_match in no_match_sections:
+                                        full_message += f"**{no_match['section_id']}** (Match: {no_match['match_percentage']}%)\n"
+                                        full_message += f"{no_match['reasoning']}\n"
+                                        
+                                        if no_match['suggested']:
+                                            full_message += f"\n**Suggested alternatives:**\n"
+                                            for sugg in no_match['suggested'][:3]:
+                                                full_message += f"• Assembly {sugg['assembly']}: {sugg['reason']} ({sugg.get('match_pct', 0)}%)\n"
+                                        full_message += "\n"
+                                
+                                st.session_state.messages.append({
+                                    "role": "assistant",
+                                    "content": full_message,
+                                    "all_boms": all_boms,  # Store matched BOMs
+                                    "no_match_sections": no_match_sections,  # Store no-match sections
+                                    "type": "multi_bom"
+                                })
+                                
+                                st.rerun()
                             else:
                                 st.error("❌ Could not extract sections from quote")
                     else:
@@ -790,4 +895,4 @@ with st.sidebar:
     
     st.markdown("---")
     st.caption("SAI Advanced Power Solutions")
-    st.caption("Module 1 BOM Generator v5.0")
+    st.caption("Module 1 BOM Generator v6.0")

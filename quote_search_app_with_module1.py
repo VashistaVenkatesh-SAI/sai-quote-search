@@ -92,11 +92,11 @@ st.markdown("""
         margin: 0 auto;
     }
     
-    /* Top Left Controls - Extreme top-left clean and modern */
-    .element-container:has(.top-left-controls) {
+    /* Top Right Controls - Extreme top-right clean and modern */
+    .element-container:has(.top-right-controls) {
         position: fixed !important;
         top: 1rem !important;
-        left: 1rem !important;
+        right: 1rem !important;
         z-index: 9999 !important;
         display: flex !important;
         gap: 0.5rem !important;
@@ -913,13 +913,13 @@ def display_bom_card(bom_data, unique_id=None):
             key=download_key
         )
 
-# Top Left Controls - Absolute positioning
+# Top Right Controls - Absolute positioning
 st.markdown("""
 <style>
 .top-controls-container {
     position: fixed;
     top: 1rem;
-    left: 1rem;
+    right: 1rem;
     z-index: 9999;
     display: flex;
     gap: 0.5rem;
@@ -1049,82 +1049,8 @@ if user_input:
             "content": "Module 1 matching not available.",
             "type": "error"
         })
-    st.rerun())
-                        suggested = section.get('suggested_assemblies', [])
-                        
-                        if matched_assembly and match_pct >= 40:
-                            try:
-                                matcher = get_matcher()
-                                section_bom = matcher.generate_bom(matched_assembly)
-                                all_boms.append({
-                                    'section_id': section_id,
-                                    'assembly': matched_assembly,
-                                    'bom': section_bom,
-                                    'reasoning': reasoning,
-                                    'match_percentage': match_pct
-                                })
-                            except Exception as e:
-                                st.warning(f"Error for {section_id}: {e}")
-                        else:
-                            no_match_sections.append({
-                                'section_id': section_id,
-                                'reasoning': reasoning,
-                                'match_percentage': match_pct,
-                                'suggested': suggested
-                            })
-                    
-                    # Create messages
-                    summary = f"{pdf_to_process.name}\n\n"
-                    if all_boms:
-                        summary += f"{len(all_boms)} section(s) matched\n"
-                    if no_match_sections:
-                        summary += f"{len(no_match_sections)} section(s) with no match\n"
-                    
-                    st.session_state.messages.append({"role": "user", "content": summary})
-                    
-                    full_message = ""
-                    if all_boms:
-                        for bom in all_boms:
-                            full_message += f"**{bom['section_id']}** -> {bom['assembly']} ({bom['match_percentage']}%)\n\n"
-                    if no_match_sections:
-                        for nm in no_match_sections:
-                            full_message += f"**{nm['section_id']}** ({nm['match_percentage']}%)\n{nm['reasoning']}\n\n"
-                    
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": full_message,
-                        "all_boms": all_boms,
-                        "no_match_sections": no_match_sections,
-                        "type": "multi_bom"
-                    })
-                    
-                    st.rerun()
-                else:
-                    st.error(" Could not extract sections")
-        else:
-            st.error(" Could not read PDF")
+    st.rerun()
 
-
-
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    
-    if MODULE1_AVAILABLE:
-        with st.spinner("Matching to Module 1 assembly..."):
-            module1_result = match_from_user_input(user_input)
-            
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": module1_result['message'],
-                "module1_result": module1_result,
-                "type": "module1"
-            })
-    else:
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": "Module 1 matching not available.",
-            "type": "error"
-        })
 
 # Display chat history
 for message in st.session_state.messages:

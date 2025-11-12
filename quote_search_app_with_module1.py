@@ -305,60 +305,91 @@ def extract_text_from_pdf(pdf_file):
         return None
 
 def extract_specs_from_text(text):
-    """Use Azure OpenAI to extract specifications from quote text"""
-    system_prompt = """You are an expert electrical switchgear specification extractor for SAI APS Module 1 box building.
+    """Use Azure OpenAI to extract specifications from quote text with full assembly knowledge"""
+    
+    # Load assembly reference
+    assembly_reference = """
+MODULE 1 ASSEMBLY REFERENCE - 10 Available Configurations:
 
-CRITICAL FEATURES TO EXTRACT (in priority order):
-1. HEIGHT - Look for: "90\"H", "78\"H", "90 inches high", etc.
-2. WIDTH - Look for: "40\"W", "30\"W", "42\"W", "40 inches wide", etc.
-3. DEPTH - Look for: "60\"D", "48\"D", "33\"D", "60 inches deep", etc.
-4. BREAKER TYPE & QUANTITY - Look for:
-   - "ABB SACE Emax 6.2" or "Emax 6.2" or "E6.2"
-   - "ABB SACE Emax 2.2" or "Emax 2.2" or "E2.2"
-   - "ABB SACE Tmax" or "Tmax XT7/XT5/XT4/XT2"
-   - "Square D" or "Square D P Frame" or "Square D L Frame"
-   - Quantity: (1), (2), (3), or "multiple"
-5. MOUNT TYPE - Look for: "fixed mount", "drawout", "draw-out", "removable"
-6. ACCESS TYPE - Look for: "front and rear access", "front only", "rear access", "dual access"
+123456-0100-101: 90"H x 40"W x 60"D, (1) ABB SACE Emax 6.2, Fixed, Front/Rear, 31 parts
+123456-0100-102: 90"H x 40"W x 60"D, (3) ABB SACE Emax 2.2, Fixed, Front/Rear, 29 parts
+123456-0100-103: 90"H x 40"W x 60"D, (2) ABB SACE Emax 2.2, Fixed, Front/Rear, 29 parts
+123456-0100-201: 90"H x 40"W x 60"D, (1) ABB SACE Emax 6.2, Drawout, Front only, 25 parts
+123456-0100-202: 90"H x 40"W x 60"D, (1) ABB SACE Emax 2.2, Drawout, Front only, 25 parts
+123456-0100-203: 90"H x 40"W x 60"D, (2) ABB SACE Emax 2.2, Drawout, Front only, 27 parts
+123456-0100-204: 90"H x 42"W x 60"D, Multiple Tmax (XT7/XT5/XT4/XT2), Fixed, Front only, 17 parts
+123456-0100-301: 90"H x 30"W x 48"D, (1) ABB SACE Emax 2.2, Drawout, Front/Rear, 26 parts
+123456-0100-302: 90"H x 42"W x 48"D, Multiple Tmax (XT5/XT4/XT2), Fixed, Front/Rear, 18 parts
+123456-0100-401: 78"H x 42"W x 33"D, Square D P/L Frame, Fixed, Front only, 15 parts
 
-IMPORTANT PATTERNS:
-- Dimensions often appear as: "90H x 40W x 60D" or "90\"H x 40\"W x 60\"D"
-- Breakers often appear as: "(1) ICCB - ABB SACE Emax 6.2"
-- Section identifiers: "Section 101", "Section 102", etc.
+MATCHING RULES:
+1. Match dimensions FIRST (H x W x D) - this narrows options quickly
+2. Match breaker type AND quantity
+3. Match mount type (Fixed vs Drawout) if specified
+4. Match access type (Front only vs Front/Rear) if specified
+5. ALL features must match exactly
 
-Extract ALL sections from the quote. Each section may have different dimensions.
+DIMENSION PATTERNS IN QUOTES:
+- "90\"H x 40\"W x 60\"D" or "90H x 40W x 60D"
+- "90 inches high, 40 inches wide, 60 inches deep"
+- "Height: 90\", Width: 40\", Depth: 60\""
 
-Output as JSON:
-{
+BREAKER PATTERNS:
+- "(1) ICCB - ABB SACE Emax 6.2" → type: "ABB SACE Emax 6.2", quantity: 1
+- "(3) ABB SACE Emax 2.2" → type: "ABB SACE Emax 2.2", quantity: 3
+- "Multiple ABB SACE Tmax" → type: "ABB SACE Tmax", quantity: "multiple"
+- "Square D P Frame" → type: "Square D"
+
+MOUNT TYPE:
+- "fixed mount", "stationary", "fixed breaker" → "fixed mount"
+- "drawout", "draw-out", "removable" → "drawout"
+
+ACCESS TYPE:
+- "front and rear access", "front & rear", "dual access" → "front and rear access"
+- "front access only", "front only" → "front only"
+"""
+
+    system_prompt = f"""You are an expert at extracting specifications from switchgear quotes for Module 1 box building.
+
+{assembly_reference}
+
+YOUR TASK:
+Extract specs from the quote that will match to one of the 10 assemblies above.
+
+Focus on extracting:
+1. DIMENSIONS (Height, Width, Depth) - in inches as numbers only (e.g., "90", "40", "60")
+2. BREAKER TYPE - exact name (e.g., "ABB SACE Emax 6.2", "ABB SACE Tmax", "Square D")
+3. BREAKER QUANTITY - number or "multiple" (e.g., 1, 2, 3, or "multiple")
+4. MOUNT TYPE - "fixed mount" or "drawout"
+5. ACCESS TYPE - "front only" or "front and rear access"
+
+Extract ALL sections if multiple sections exist.
+
+CRITICAL: Use the assembly reference above to guide your extraction. The dimensions and breaker types you extract should align with the available assemblies.
+
+Output JSON format:
+{{
   "sections": [
-    {
+    {{
       "identifier": "Section 101",
-      "dimensions": {
-        "height": "90",
-        "width": "40",
-        "depth": "60"
-      },
-      "main_circuit_breaker": {
+      "dimensions": {{"height": "90", "width": "40", "depth": "60"}},
+      "main_circuit_breaker": {{
         "type": "ABB SACE Emax 6.2",
         "quantity": 1
-      }
-    }
+      }}
+    }}
   ],
   "special_construction_requirements": ["fixed mount", "front and rear access"]
-}"""
+}}"""
 
-    user_prompt = f"""Extract MODULE 1 BOX BUILDING specifications from this quote.
+    user_prompt = f"""Extract MODULE 1 specifications from this quote.
 
-Focus on finding:
-- Exact dimensions (H x W x D) for each section
-- Breaker types and quantities
-- Mount type (fixed or drawout)
-- Access type (front only or front and rear)
+Look for dimensions, breaker types/quantities, mount type, and access type that match the available assemblies.
 
 Quote text:
 {text[:12000]}
 
-Return complete JSON with all technical details."""
+Return complete JSON."""
     
     try:
         response = openai.ChatCompletion.create(

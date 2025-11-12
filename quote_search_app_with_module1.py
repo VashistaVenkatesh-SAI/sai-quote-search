@@ -67,7 +67,7 @@ st.markdown("""
     
     /* Global Styles */
     * {
-        font-family: 'Corbel', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-family: 'Candara', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
     
     .stApp {

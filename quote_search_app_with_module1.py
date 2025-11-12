@@ -1,5 +1,5 @@
 """
-SAI Module 1 BOM Generator - COMPLETE VERSION
+Voltrix BOM Generator - COMPLETE VERSION
 Upload quote PDFs or type specifications for instant BOM generation
 Uses Module1_Training_Examples.xlsx for matching
 """
@@ -44,10 +44,10 @@ openai.api_version = "2024-02-01"
 
 # Page config
 st.set_page_config(
-    page_title="SAI Module 1 BOM Generator",
-    page_icon="🔧",
+    page_title="Voltrix BOM Generator",
+    page_icon="V",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # CSS Styling - Modern Monotone Dark Theme
@@ -348,12 +348,12 @@ st.markdown("""
         background: transparent !important;
     }
     
-    .stFileUploader section > div {
+    .stFileUploader section > div > div {
         display: none !important;
     }
     
-    .stFileUploader section::before {
-        content: "📁 Browse Files";
+    .stFileUploader section::after {
+        content: "Browse Files";
         color: var(--text-secondary);
         font-size: 0.875rem;
         font-weight: 500;
@@ -384,9 +384,9 @@ st.markdown("""
         background: var(--surface-hover) !important;
     }
     
-    /* When file is uploaded, show file name */
-    .stFileUploader:has(.uploadedFile) section::before {
-        content: "📄 " attr(data-testid);
+    /* When file is uploaded */
+    .stFileUploader:has([data-testid="stFileUploaderFileName"]) section::after {
+        content: "File Selected";
         color: var(--text);
     }
     
@@ -514,7 +514,7 @@ def load_training_examples():
         return examples_text, examples_dict
         
     except Exception as e:
-        st.error(f"⚠️ Could not load training examples: {e}")
+        st.error(f"Could not load training examples: {e}")
         return None, None
 
 def check_password():
@@ -527,7 +527,7 @@ def check_password():
     
     st.markdown("""
     <div class="app-header">
-        <h1>SAI Module 1 BOM Generator</h1>
+        <h1>Voltrix BOM Generator</h1>
         <p>Sign in to access the automated BOM generation system</p>
     </div>
     """, unsafe_allow_html=True)
@@ -586,7 +586,7 @@ def extract_specs_from_text(text):
     examples_text, examples_dict = load_training_examples()
     
     if not examples_text:
-        st.warning("⚠️ Reference data not available - using fallback")
+        st.warning("Reference data not available - using fallback")
         examples_text = """10 assemblies available:
 123456-0100-101: 90H x 40W x 60D, Emax 6.2
 123456-0100-102: 90H x 40W x 60D, (3) Emax 2.2
@@ -599,7 +599,7 @@ def extract_specs_from_text(text):
 123456-0100-302: 90H x 42W x 48D, Tmax
 123456-0100-401: 78H x 42W x 33D, Square D"""
     else:
-        st.success("✅ Loaded assembly reference data")
+        st.success("Loaded assembly reference data")
 
     system_prompt = f"""You are an expert at identifying Module 1 switchgear assemblies from quotes.
 
@@ -620,7 +620,7 @@ MATCH PERCENTAGE CALCULATION:
 
 For each section, explain like this:
 
-HIGH CONFIDENCE (≥75%):
+HIGH CONFIDENCE (>=75%):
 "Section [X] matches Assembly [NUMBER] (XX% match):
 
 Quote specifications:
@@ -728,7 +728,7 @@ def display_bom_card(bom_data, unique_id=None):
     # Show selection buttons if multiple/no exact match
     if status in ['ambiguous', 'no_match'] and matched_assemblies:
         # Show detected specs
-        st.markdown("### 📋 Detected Specifications:")
+        st.markdown("### Detected Specifications:")
         det_col1, det_col2, det_col3, det_col4 = st.columns(4)
         with det_col1:
             st.metric("Height", f"{extracted_features.get('height', '?')}\"")
@@ -774,10 +774,10 @@ def display_bom_card(bom_data, unique_id=None):
         assemblies_with_scores.sort(key=lambda x: x[1], reverse=True)
         
         if not assemblies_with_scores:
-            st.error("❌ No assemblies match at 50% or higher. Please check specifications.")
+            st.error(" No assemblies match at 50% or higher. Please check specifications.")
             return
         
-        st.markdown(f"### 🔍 Select an assembly ({len(assemblies_with_scores)} matches ≥50%):")
+        st.markdown(f"### Select an assembly ({len(assemblies_with_scores)} matches >=50%):")
         
         num_assemblies = min(len(assemblies_with_scores), 9)
         cols_per_row = 3
@@ -801,11 +801,11 @@ def display_bom_card(bom_data, unique_id=None):
                             
                             st.session_state.messages.append({
                                 "role": "assistant",
-                                "content": f"✅ Showing BOM for Assembly {assembly_num}",
+                                "content": f"Showing BOM for Assembly {assembly_num}",
                                 "module1_result": {
                                     'status': 'exact_match',
                                     'bom': selected_bom,
-                                    'message': f"✅ BOM for {assembly_num}"
+                                    'message': f"BOM for {assembly_num}"
                                 },
                                 "type": "module1"
                             })
@@ -821,10 +821,10 @@ def display_bom_card(bom_data, unique_id=None):
                             breaker_match = extracted_features['breaker_type'].upper() in specs['breaker_type'].upper() or specs['breaker_type'].upper() in extracted_features['breaker_type'].upper()
                         
                         st.caption("**Match Details:**")
-                        st.caption(f"{'✅' if height_match else '❌'} Height: {specs['height']}\"")
-                        st.caption(f"{'✅' if width_match else '❌'} Width: {specs['width']}\"")
-                        st.caption(f"{'✅' if depth_match else '❌'} Depth: {specs['depth']}\"")
-                        st.caption(f"{'✅' if breaker_match else '❌'} Breaker: {specs['breaker_type'][:20]}...")
+                        st.caption(f"{'' if height_match else ''} Height: {specs['height']}\"")
+                        st.caption(f"{'' if width_match else ''} Width: {specs['width']}\"")
+                        st.caption(f"{'' if depth_match else ''} Depth: {specs['depth']}\"")
+                        st.caption(f"{'' if breaker_match else ''} Breaker: {specs['breaker_type'][:20]}...")
                         st.caption(f"Mount: {specs['mount']}")
                         st.caption(f"Access: {specs['access']}")
         
@@ -838,14 +838,14 @@ def display_bom_card(bom_data, unique_id=None):
     
     # Create badge with match percentage if available
     if match_percentage is not None:
-        badge_html = f'<span class="status-badge">✓ {match_percentage}% Match</span>'
+        badge_html = f'<span class="status-badge"> {match_percentage}% Match</span>'
     else:
-        badge_html = '<span class="status-badge">✓ Matched</span>'
+        badge_html = '<span class="status-badge"> Matched</span>'
     
     st.markdown(f"""
     <div class="bom-card">
         <div class="bom-header">
-            <div class="bom-title">🔧 Module 1 BOM</div>
+            <div class="bom-title">Module 1 BOM</div>
             {badge_html}
         </div>
         <div style="font-size: 1.125rem; color: #e8e8e8; font-weight: 600;">
@@ -878,7 +878,7 @@ def display_bom_card(bom_data, unique_id=None):
     st.markdown(f"**Total Components:** `{bom['total_parts']} parts`")
     
     # Components list
-    with st.expander(f"📋 View all {bom['total_parts']} components", expanded=False):
+    with st.expander(f"View all {bom['total_parts']} components", expanded=False):
         for i, comp in enumerate(bom['components'], 1):
             st.markdown(f"""
             <div class="component-item">
@@ -893,7 +893,7 @@ def display_bom_card(bom_data, unique_id=None):
     export_key = f"export_{bom['assembly_number']}" if not unique_id else f"export_{unique_id}"
     download_key = f"download_{bom['assembly_number']}" if not unique_id else f"download_{unique_id}"
     
-    if st.button("📥 Export BOM to CSV", key=export_key):
+    if st.button(" Export BOM to CSV", key=export_key):
         csv_buffer = io.StringIO()
         csv_buffer.write("Item,Part Number,Description,Quantity\n")
         
@@ -906,7 +906,7 @@ def display_bom_card(bom_data, unique_id=None):
         csv_str = csv_buffer.getvalue()
         
         st.download_button(
-            label="📥 Download CSV",
+            label=" Download CSV",
             data=csv_str,
             file_name=f"{bom['assembly_number']}_BOM.csv",
             mime="text/csv",
@@ -948,12 +948,185 @@ st.markdown("<div style='height: 5rem;'></div>", unsafe_allow_html=True)
 # Centered Logo
 st.markdown("""
 <div class="app-logo">
-    <h1>SAI Module 1</h1>
+    <h1>Voltrix</h1>
     <div class="app-logo-badge">BOM Generator</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Display chat history FIRST
+# Process PDF if triggered
+if hasattr(st.session_state, 'trigger_pdf_process') and st.session_state.trigger_pdf_process:
+    pdf_to_process = st.session_state.current_pdf
+    st.session_state.trigger_pdf_process = False  # Reset trigger
+    
+    with st.spinner("Reading PDF..."):
+        text = extract_text_from_pdf(pdf_to_process)
+        
+        if text:
+            with st.spinner("Analyzing sections..."):
+                specs_json = extract_specs_from_text(text)
+                
+                if specs_json and 'sections' in specs_json:
+                    # Process each section
+                    all_boms = []
+                    no_match_sections = []
+                    
+                    for section in specs_json['sections']:
+                        section_id = section.get('identifier', 'Unknown')
+                        matched_assembly = section.get('matched_assembly', None)
+                        match_pct = section.get('match_percentage', 0)
+                        reasoning = section.get('reasoning', '')
+                        suggested = section.get('suggested_assemblies', [])
+                        
+                        if matched_assembly and match_pct >= 40:
+                            try:
+                                matcher = get_matcher()
+                                section_bom = matcher.generate_bom(matched_assembly)
+                                all_boms.append({
+                                    'section_id': section_id,
+                                    'assembly': matched_assembly,
+                                    'bom': section_bom,
+                                    'reasoning': reasoning,
+                                    'match_percentage': match_pct
+                                })
+                            except Exception as e:
+                                st.warning(f"Error for {section_id}: {e}")
+                        else:
+                            no_match_sections.append({
+                                'section_id': section_id,
+                                'reasoning': reasoning,
+                                'match_percentage': match_pct,
+                                'suggested': suggested
+                            })
+                    
+                    # Create messages
+                    summary = f"{pdf_to_process.name}\n\n"
+                    if all_boms:
+                        summary += f"{len(all_boms)} section(s) matched\n"
+                    if no_match_sections:
+                        summary += f"{len(no_match_sections)} section(s) with no match\n"
+                    
+                    st.session_state.messages.append({"role": "user", "content": summary})
+                    
+                    full_message = ""
+                    if all_boms:
+                        for bom in all_boms:
+                            full_message += f"**{bom['section_id']}** - {bom['assembly']} ({bom['match_percentage']}%)\n\n"
+                    if no_match_sections:
+                        for nm in no_match_sections:
+                            full_message += f"**{nm['section_id']}** ({nm['match_percentage']}%)\n{nm['reasoning']}\n\n"
+                    
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": full_message,
+                        "all_boms": all_boms,
+                        "no_match_sections": no_match_sections,
+                        "type": "multi_bom"
+                    })
+                    
+                    st.rerun()
+                else:
+                    st.error("Could not extract sections")
+        else:
+            st.error("Could not read PDF")
+
+# Handle text input
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    
+    if MODULE1_AVAILABLE:
+        with st.spinner("Matching to Module 1 assembly..."):
+            module1_result = match_from_user_input(user_input)
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": module1_result['message'],
+                "module1_result": module1_result,
+                "type": "module1"
+            })
+    else:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "Module 1 matching not available.",
+            "type": "error"
+        })
+    st.rerun())
+                        suggested = section.get('suggested_assemblies', [])
+                        
+                        if matched_assembly and match_pct >= 40:
+                            try:
+                                matcher = get_matcher()
+                                section_bom = matcher.generate_bom(matched_assembly)
+                                all_boms.append({
+                                    'section_id': section_id,
+                                    'assembly': matched_assembly,
+                                    'bom': section_bom,
+                                    'reasoning': reasoning,
+                                    'match_percentage': match_pct
+                                })
+                            except Exception as e:
+                                st.warning(f"Error for {section_id}: {e}")
+                        else:
+                            no_match_sections.append({
+                                'section_id': section_id,
+                                'reasoning': reasoning,
+                                'match_percentage': match_pct,
+                                'suggested': suggested
+                            })
+                    
+                    # Create messages
+                    summary = f"{pdf_to_process.name}\n\n"
+                    if all_boms:
+                        summary += f"{len(all_boms)} section(s) matched\n"
+                    if no_match_sections:
+                        summary += f"{len(no_match_sections)} section(s) with no match\n"
+                    
+                    st.session_state.messages.append({"role": "user", "content": summary})
+                    
+                    full_message = ""
+                    if all_boms:
+                        for bom in all_boms:
+                            full_message += f"**{bom['section_id']}** -> {bom['assembly']} ({bom['match_percentage']}%)\n\n"
+                    if no_match_sections:
+                        for nm in no_match_sections:
+                            full_message += f"**{nm['section_id']}** ({nm['match_percentage']}%)\n{nm['reasoning']}\n\n"
+                    
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": full_message,
+                        "all_boms": all_boms,
+                        "no_match_sections": no_match_sections,
+                        "type": "multi_bom"
+                    })
+                    
+                    st.rerun()
+                else:
+                    st.error(" Could not extract sections")
+        else:
+            st.error(" Could not read PDF")
+
+
+
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    
+    if MODULE1_AVAILABLE:
+        with st.spinner("Matching to Module 1 assembly..."):
+            module1_result = match_from_user_input(user_input)
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": module1_result['message'],
+                "module1_result": module1_result,
+                "type": "module1"
+            })
+    else:
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "Module 1 matching not available.",
+            "type": "error"
+        })
+
+# Display chat history
 for message in st.session_state.messages:
     if message["role"] == "user":
         st.markdown(f'<div class="user-message">{message["content"]}</div>', unsafe_allow_html=True)
@@ -1019,10 +1192,7 @@ for message in st.session_state.messages:
 
 st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
 
-# Search bar with integrated action buttons at BOTTOM
-st.markdown("### ")  # Spacing
-
-# Action buttons integrated with search area
+# Action buttons integrated with search area at BOTTOM
 col1, col2, col3, col_space = st.columns([1.2, 1.2, 1, 5])
 
 with col1:
@@ -1057,147 +1227,6 @@ if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
 
 # Chat input - main search bar
 user_input = st.chat_input("What do you want to know?")
-
-st.markdown("<div style='height: 3rem;'></div>", unsafe_allow_html=True)
-
-# Process PDF if triggered
-if hasattr(st.session_state, 'trigger_pdf_process') and st.session_state.trigger_pdf_process:
-    pdf_to_process = st.session_state.current_pdf
-    st.session_state.trigger_pdf_process = False  # Reset trigger
-    
-    with st.spinner("📄 Reading PDF..."):
-        text = extract_text_from_pdf(pdf_to_process)
-        
-        if text:
-            with st.spinner("🤖 Analyzing sections..."):
-                specs_json = extract_specs_from_text(text)
-                
-                if specs_json and 'sections' in specs_json:
-                    # Process each section
-                    all_boms = []
-                    no_match_sections = []
-                    
-                    for section in specs_json['sections']:
-                        section_id = section.get('identifier', 'Unknown')
-                        matched_assembly = section.get('matched_assembly', None)
-                        match_pct = section.get('match_percentage', 0)
-                        reasoning = section.get('reasoning', '')
-                        suggested = section.get('suggested_assemblies', [])
-                        
-                        if matched_assembly and match_pct >= 40:
-                            try:
-                                matcher = get_matcher()
-                                section_bom = matcher.generate_bom(matched_assembly)
-                                all_boms.append({
-                                    'section_id': section_id,
-                                    'assembly': matched_assembly,
-                                    'bom': section_bom,
-                                    'reasoning': reasoning,
-                                    'match_percentage': match_pct
-                                })
-                            except Exception as e:
-                                st.warning(f"⚠️ Error for {section_id}: {e}")
-                        else:
-                            no_match_sections.append({
-                                'section_id': section_id,
-                                'reasoning': reasoning,
-                                'match_percentage': match_pct,
-                                'suggested': suggested
-                            })
-                    
-                    # Create messages
-                    summary = f"📄 {pdf_to_process.name}\n\n"
-                    if all_boms:
-                        summary += f"✅ {len(all_boms)} section(s) matched\n"
-                    if no_match_sections:
-                        summary += f"⚠️ {len(no_match_sections)} section(s) with no match\n"
-                    
-                    st.session_state.messages.append({"role": "user", "content": summary})
-                    
-                    full_message = ""
-                    if all_boms:
-                        for bom in all_boms:
-                            full_message += f"**{bom['section_id']}** → {bom['assembly']} ({bom['match_percentage']}%)\n\n"
-                    if no_match_sections:
-                        for nm in no_match_sections:
-                            full_message += f"⚠️ **{nm['section_id']}** ({nm['match_percentage']}%)\n{nm['reasoning']}\n\n"
-                    
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": full_message,
-                        "all_boms": all_boms,
-                        "no_match_sections": no_match_sections,
-                        "type": "multi_bom"
-                    })
-                    
-                    st.rerun()
-                else:
-                    st.error("❌ Could not extract sections")
-        else:
-            st.error("❌ Could not read PDF")
-
-
-
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    
-    if MODULE1_AVAILABLE:
-        with st.spinner("Matching to Module 1 assembly..."):
-            module1_result = match_from_user_input(user_input)
-            
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": module1_result['message'],
-                "module1_result": module1_result,
-                "type": "module1"
-            })
-    else:
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": "Module 1 matching not available.",
-            "type": "error"
-        })
-
-# Display chat history
-for message in st.session_state.messages:
-    if message["role"] == "user":
-        st.markdown(f'<div class="user-message">{message["content"]}</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
-        
-        # Handle single BOM
-        if message.get("type") == "module1" and "module1_result" in message:
-            display_bom_card(message["module1_result"])
-        
-        # Handle multiple BOMs (multi-section quotes)
-        elif message.get("type") == "multi_bom":
-            # Display matched BOMs
-            if "all_boms" in message and message["all_boms"]:
-                for idx, bom_data in enumerate(message["all_boms"]):
-                    st.markdown(f"### 📦 {bom_data['section_id']}")
-                    
-                    # Create module1_result format for display with unique ID
-                    module1_result = {
-                        'status': 'exact_match',
-                        'bom': bom_data['bom'],
-                        'message': f"✅ {bom_data['section_id']}: Assembly {bom_data['assembly']}",
-                        'match_percentage': bom_data.get('match_percentage', None)
-                    }
-                    
-                    # Pass unique ID to avoid duplicate widget keys
-                    unique_id = f"{bom_data['section_id']}_{bom_data['assembly']}_{idx}"
-                    display_bom_card(module1_result, unique_id=unique_id)
-                    st.markdown("---")
-            
-            # Display no-match sections with suggestions
-            if "no_match_sections" in message and message["no_match_sections"]:
-                st.markdown("### ⚠️ Sections Without Exact Match")
-                
-                for no_match in message["no_match_sections"]:
-                    st.markdown(f"""
-                    <div style="background: #2d2d2d; border: 2px solid #EF4444; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
-                        <div style="font-size: 1.125rem; font-weight: 600; color: #EF4444; margin-bottom: 0.5rem;">
-                            🔍 {no_match['section_id']}
                         </div>
                         <div style="color: #b0b0b0; margin-bottom: 1rem;">
                             Match Confidence: {no_match['match_percentage']}% (Below 40% threshold)
@@ -1206,7 +1235,7 @@ for message in st.session_state.messages:
                     """, unsafe_allow_html=True)
                     
                     if no_match.get('suggested'):
-                        st.markdown("**💡 Suggested Alternatives:**")
+                        st.markdown("** Suggested Alternatives:**")
                         
                         for sugg in no_match['suggested'][:3]:
                             assembly_num = sugg['assembly']
@@ -1225,6 +1254,6 @@ for message in st.session_state.messages:
 # Footer
 st.markdown("""
 <div class="footer-text">
-    SAI Advanced Power Solutions • Module 1 BOM Generator v8.2
+    SAI Advanced Power Solutions • Voltrix BOM Generator v9.0
 </div>
 """, unsafe_allow_html=True)

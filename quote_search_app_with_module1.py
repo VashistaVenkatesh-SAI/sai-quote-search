@@ -45,8 +45,8 @@ openai.api_version = "2024-02-01"
 
 # Page config
 st.set_page_config(
-    page_title="SAI Quote Search + Module 1",
-    page_icon="🔍",
+    page_title="SAI Module 1 BOM Generator",
+    page_icon="🔧",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -252,8 +252,8 @@ def check_password():
     
     st.markdown("""
     <div class="main-header">
-        <h1>SAI Quote Search + Module 1</h1>
-        <p>Sign in to access the quote search and BOM generation system</p>
+        <h1>SAI Module 1 BOM Generator</h1>
+        <p>Sign in to access the automated BOM generation system</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -538,24 +538,21 @@ def generate_response(query, search_results):
         return f"I found {len(search_results)} similar quotes."
 
 # Header
-module1_badge = '<span class="module1-badge">+ Module 1</span>' if MODULE1_AVAILABLE else ''
+module1_badge = '<span class="module1-badge">BOM Generator</span>' if MODULE1_AVAILABLE else ''
 st.markdown(f"""
 <div class="main-header">
-    <h1>SAI Quote Search{module1_badge}</h1>
-    <p>Upload quotes for instant Module 1 BOM generation or search existing quotes</p>
+    <h1>SAI Module 1 {module1_badge}</h1>
+    <p>Upload quote PDFs or type specifications for instant BOM generation</p>
 </div>
 """, unsafe_allow_html=True)
 
 # Chat input
-user_input = st.chat_input("Search quotes or ask about Module 1... (e.g., '90H x 40W x 60D, Emax 6.2')")
+user_input = st.chat_input("Type specs for Module 1 BOM... (e.g., '90H x 40W x 60D, Emax 6.2')")
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     
-    # Check if Module 1 query
-    is_module1 = any(keyword in user_input.lower() for keyword in ['module', 'bom', 'assembly', 'breaker', 'emax', 'tmax', '"h', '"w', '"d'])
-    
-    if is_module1 and MODULE1_AVAILABLE:
+    if MODULE1_AVAILABLE:
         with st.spinner("Matching to Module 1 assembly..."):
             module1_result = match_from_user_input(user_input)
             
@@ -566,15 +563,10 @@ if user_input:
                 "type": "module1"
             })
     else:
-        with st.spinner("Searching quotes..."):
-            results = search_quotes(user_input)
-            ai_response = generate_response(user_input, results)
-        
         st.session_state.messages.append({
-            "role": "assistant", 
-            "content": ai_response,
-            "results": results,
-            "type": "search"
+            "role": "assistant",
+            "content": "Module 1 matching is not available. Please check if Module1Matcher.py and Module 1.xlsx are present.",
+            "type": "error"
         })
 
 # Display chat history
@@ -584,12 +576,9 @@ for message in st.session_state.messages:
     else:
         st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
         
+        # Only display Module 1 BOM cards
         if message.get("type") == "module1" and "module1_result" in message:
             display_bom_card(message["module1_result"])
-        
-        elif message.get("type") == "search" and "results" in message and message["results"]:
-            for result in message["results"]:
-                display_quote_card(result, result.get('@search.score', 0.8))
 
 # Sidebar
 with st.sidebar:
@@ -621,23 +610,25 @@ with st.sidebar:
                     text = extract_text_from_pdf(uploaded_pdf)
                     
                     if text:
-                        st.success(f"✅ Extracted {len(text)} characters")
-                        
                         with st.spinner("🤖 Extracting specifications..."):
                             # Extract specs
                             specs_json = extract_specs_from_text(text)
                             
                             if specs_json:
-                                st.success("✅ Specs extracted!")
-                                
                                 with st.spinner("🔍 Matching to Module 1..."):
                                     # Match to Module 1
                                     module1_result = match_quote_to_assembly(specs_json)
                                     
+                                    # Show extracted features for user
+                                    features = module1_result.get('extracted_features', {})
+                                    feature_text = f"Detected: {features.get('height', '?')}\"H x {features.get('width', '?')}\"W x {features.get('depth', '?')}\"D"
+                                    if features.get('breaker_type'):
+                                        feature_text += f", {features['breaker_type']}"
+                                    
                                     # Add to messages
                                     st.session_state.messages.append({
                                         "role": "user",
-                                        "content": f"📄 Uploaded: {uploaded_pdf.name}"
+                                        "content": f"📄 {uploaded_pdf.name}\n{feature_text}"
                                     })
                                     
                                     st.session_state.messages.append({
@@ -648,8 +639,10 @@ with st.sidebar:
                                     })
                                     
                                     st.rerun()
+                            else:
+                                st.error("❌ Could not extract specs from PDF")
                     else:
-                        st.error("❌ Could not extract text from PDF")
+                        st.error("❌ Could not read PDF")
         
         st.markdown("---")
     
@@ -692,4 +685,4 @@ with st.sidebar:
     
     st.markdown("---")
     st.caption("SAI Advanced Power Solutions")
-    st.caption("Quote Search + Module 1 BOM v2.2")
+    st.caption("Module 1 BOM Generator v3.0")

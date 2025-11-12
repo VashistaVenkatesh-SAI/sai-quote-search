@@ -71,47 +71,40 @@ st.markdown("""
     }
     
     .stApp {
-        background: #0a0a0a;
+        background: #0a0a0a !important;
         color: var(--grok-text);
+    }
+    
+    /* Force uniform background */
+    .main, .block-container, [data-testid="stAppViewContainer"] {
+        background: #0a0a0a !important;
     }
     
     /* Hide Streamlit Elements */
     #MainMenu, footer, header {visibility: hidden;}
     .stDeployButton {display: none;}
-    section[data-testid="stSidebar"] {display: none;}
+    section[data-testid="stSidebar"] {display: none !important;}
     
     /* Main Container - Centered like Grok */
     .main .block-container {
         max-width: 900px;
-        padding: 3rem 2rem;
+        padding: 1rem 2rem 4rem 2rem;
         margin: 0 auto;
     }
     
-    /* Top Left Controls - Like Grok's corner buttons */
-    .top-controls {
-        position: fixed;
-        top: 1.5rem;
-        left: 1.5rem;
-        display: flex;
-        gap: 0.75rem;
-        z-index: 1000;
+    /* Top Left Controls - Extreme top-left like Grok */
+    .element-container:has(.top-left-controls) {
+        position: fixed !important;
+        top: 1rem !important;
+        left: 1rem !important;
+        z-index: 9999 !important;
+        display: flex !important;
+        gap: 0.5rem !important;
     }
     
-    .top-control-btn {
-        background: var(--grok-surface);
-        border: 1px solid var(--grok-border);
-        color: var(--grok-text-secondary);
-        padding: 0.625rem 1rem;
-        border-radius: 20px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-    
-    .top-control-btn:hover {
-        background: var(--grok-surface-hover);
-        color: var(--grok-text);
+    /* Style for top control buttons */
+    div[data-testid="column"]:has(button) {
+        min-width: fit-content !important;
     }
     
     /* Logo - Centered at top like Grok */
@@ -315,18 +308,37 @@ st.markdown("""
         border-color: #404040;
     }
     
-    /* File Uploader - Monotone */
+    /* File Uploader - Monotone and compact */
     .stFileUploader {
-        background: transparent;
-        border: 1px dashed var(--grok-border);
-        border-radius: 20px;
-        padding: 2rem;
-        transition: all 0.3s ease;
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
     }
     
-    .stFileUploader:hover {
-        border-color: #404040;
-        background: var(--grok-surface);
+    .stFileUploader > div {
+        background: var(--grok-surface) !important;
+        border: 1px solid var(--grok-border) !important;
+        border-radius: 20px !important;
+        padding: 0.625rem 1.25rem !important;
+    }
+    
+    .stFileUploader label {
+        color: var(--grok-text-secondary) !important;
+        font-size: 0.875rem !important;
+        font-weight: 500 !important;
+    }
+    
+    .stFileUploader:hover > div {
+        border-color: #404040 !important;
+        background: var(--grok-surface-hover) !important;
+    }
+    
+    /* Make all column buttons compact */
+    div[data-testid="column"] .stButton > button {
+        padding: 0.625rem 1rem !important;
+        border-radius: 20px !important;
+        font-size: 0.875rem !important;
+        min-width: fit-content !important;
     }
     
     /* Metrics - Monotone */
@@ -844,22 +856,23 @@ def display_bom_card(bom_data, unique_id=None):
             key=download_key
         )
 
-# Top Left Controls - Grok style
-col1, col2, col3, col_spacer = st.columns([0.8, 0.8, 0.8, 8])
+# Top Left Controls - Fixed position like Grok
+st.markdown('<div class="top-left-controls"></div>', unsafe_allow_html=True)
+col1, col2, col3 = st.columns([0.7, 0.7, 0.8])
 with col1:
-    if st.button("👤 Out", key="signout_top"):
+    if st.button("👤", key="signout_top", help="Sign out"):
         st.session_state.authenticated = False
         st.session_state.current_user = None
         st.rerun()
 with col2:
-    if st.button("🗑️ Clear", key="clear_top"):
+    if st.button("🗑️", key="clear_top", help="Clear chat"):
         st.session_state.messages = []
         st.rerun()
 with col3:
     msg_count = len(st.session_state.messages)
-    st.button(f"📊 {msg_count}", key="stats_top", disabled=True)
+    st.button(f"📊 {msg_count}", key="stats_top", disabled=True, help="Message count")
 
-st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='height: 5rem;'></div>", unsafe_allow_html=True)
 
 # Centered Logo - Grok style
 st.markdown("""
@@ -872,20 +885,21 @@ st.markdown("""
 # Chat input - main search bar
 user_input = st.chat_input("What do you want to know?")
 
-# Action buttons below search - Grok style
-st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
-col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+# Action buttons directly below search - integrated like Grok's DeepSearch/Voice buttons
+col1, col2, col3, col4 = st.columns([1, 1, 1, 4])
+
 with col1:
     if MODULE1_AVAILABLE and PDF_AVAILABLE:
         uploaded_pdf = st.file_uploader(
             "📁 Browse Files",
             type=['pdf'],
             key="pdf_uploader",
-            label_visibility="collapsed"
+            label_visibility="visible"
         )
+        
 with col2:
     if MODULE1_AVAILABLE:
-        if st.button("📋 List Assemblies", key="list_asm", use_container_width=True):
+        if st.button("📋 List Assemblies", key="list_asm"):
             matcher = get_matcher()
             assembly_list = "**Available Module 1 Assemblies:**\n\n"
             for asm_num in sorted(matcher.assembly_specs.keys()):
@@ -896,83 +910,93 @@ with col2:
             st.session_state.messages.append({"role": "assistant", "content": assembly_list, "type": "text"})
             st.rerun()
 
-st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+with col3:
+    # Generate BOM button appears when file is uploaded
+    if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
+        if st.button("🔧 Generate", key="gen_bom"):
+            # Trigger PDF processing
+            st.session_state.trigger_pdf_process = True
+            st.session_state.current_pdf = uploaded_pdf
+            st.rerun()
 
-# Handle file upload
-if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
-    if st.button("🔧 Generate BOM", key="gen_bom", use_container_width=True):
-        with st.spinner("📄 Reading PDF..."):
-            text = extract_text_from_pdf(uploaded_pdf)
-            
-            if text:
-                with st.spinner("🤖 Analyzing sections..."):
-                    specs_json = extract_specs_from_text(text)
+st.markdown("<div style='height: 3rem;'></div>", unsafe_allow_html=True)
+
+# Process PDF if triggered
+if hasattr(st.session_state, 'trigger_pdf_process') and st.session_state.trigger_pdf_process:
+    pdf_to_process = st.session_state.current_pdf
+    st.session_state.trigger_pdf_process = False  # Reset trigger
+    
+    with st.spinner("📄 Reading PDF..."):
+        text = extract_text_from_pdf(pdf_to_process)
+        
+        if text:
+            with st.spinner("🤖 Analyzing sections..."):
+                specs_json = extract_specs_from_text(text)
+                
+                if specs_json and 'sections' in specs_json:
+                    # Process each section
+                    all_boms = []
+                    no_match_sections = []
                     
-                    if specs_json and 'sections' in specs_json:
-                        num_sections = len(specs_json['sections'])
+                    for section in specs_json['sections']:
+                        section_id = section.get('identifier', 'Unknown')
+                        matched_assembly = section.get('matched_assembly', None)
+                        match_pct = section.get('match_percentage', 0)
+                        reasoning = section.get('reasoning', '')
+                        suggested = section.get('suggested_assemblies', [])
                         
-                        # Process each section
-                        all_boms = []
-                        no_match_sections = []
-                        
-                        for section in specs_json['sections']:
-                            section_id = section.get('identifier', 'Unknown')
-                            matched_assembly = section.get('matched_assembly', None)
-                            match_pct = section.get('match_percentage', 0)
-                            reasoning = section.get('reasoning', '')
-                            suggested = section.get('suggested_assemblies', [])
-                            
-                            if matched_assembly and match_pct >= 40:
-                                try:
-                                    matcher = get_matcher()
-                                    section_bom = matcher.generate_bom(matched_assembly)
-                                    all_boms.append({
-                                        'section_id': section_id,
-                                        'assembly': matched_assembly,
-                                        'bom': section_bom,
-                                        'reasoning': reasoning,
-                                        'match_percentage': match_pct
-                                    })
-                                except Exception as e:
-                                    st.warning(f"⚠️ Error for {section_id}: {e}")
-                            else:
-                                no_match_sections.append({
+                        if matched_assembly and match_pct >= 40:
+                            try:
+                                matcher = get_matcher()
+                                section_bom = matcher.generate_bom(matched_assembly)
+                                all_boms.append({
                                     'section_id': section_id,
+                                    'assembly': matched_assembly,
+                                    'bom': section_bom,
                                     'reasoning': reasoning,
-                                    'match_percentage': match_pct,
-                                    'suggested': suggested
+                                    'match_percentage': match_pct
                                 })
-                        
-                        # Create messages
-                        summary = f"📄 {uploaded_pdf.name}\n\n"
-                        if all_boms:
-                            summary += f"✅ {len(all_boms)} section(s) matched\n"
-                        if no_match_sections:
-                            summary += f"⚠️ {len(no_match_sections)} section(s) with no match\n"
-                        
-                        st.session_state.messages.append({"role": "user", "content": summary})
-                        
-                        full_message = ""
-                        if all_boms:
-                            for bom in all_boms:
-                                full_message += f"**{bom['section_id']}** → {bom['assembly']} ({bom['match_percentage']}%)\n\n"
-                        if no_match_sections:
-                            for nm in no_match_sections:
-                                full_message += f"⚠️ **{nm['section_id']}** ({nm['match_percentage']}%)\n{nm['reasoning']}\n\n"
-                        
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": full_message,
-                            "all_boms": all_boms,
-                            "no_match_sections": no_match_sections,
-                            "type": "multi_bom"
-                        })
-                        
-                        st.rerun()
-                    else:
-                        st.error("❌ Could not extract sections")
-            else:
-                st.error("❌ Could not read PDF")
+                            except Exception as e:
+                                st.warning(f"⚠️ Error for {section_id}: {e}")
+                        else:
+                            no_match_sections.append({
+                                'section_id': section_id,
+                                'reasoning': reasoning,
+                                'match_percentage': match_pct,
+                                'suggested': suggested
+                            })
+                    
+                    # Create messages
+                    summary = f"📄 {pdf_to_process.name}\n\n"
+                    if all_boms:
+                        summary += f"✅ {len(all_boms)} section(s) matched\n"
+                    if no_match_sections:
+                        summary += f"⚠️ {len(no_match_sections)} section(s) with no match\n"
+                    
+                    st.session_state.messages.append({"role": "user", "content": summary})
+                    
+                    full_message = ""
+                    if all_boms:
+                        for bom in all_boms:
+                            full_message += f"**{bom['section_id']}** → {bom['assembly']} ({bom['match_percentage']}%)\n\n"
+                    if no_match_sections:
+                        for nm in no_match_sections:
+                            full_message += f"⚠️ **{nm['section_id']}** ({nm['match_percentage']}%)\n{nm['reasoning']}\n\n"
+                    
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": full_message,
+                        "all_boms": all_boms,
+                        "no_match_sections": no_match_sections,
+                        "type": "multi_bom"
+                    })
+                    
+                    st.rerun()
+                else:
+                    st.error("❌ Could not extract sections")
+        else:
+            st.error("❌ Could not read PDF")
+
 
 
 if user_input:
@@ -1062,6 +1086,6 @@ for message in st.session_state.messages:
 # Footer
 st.markdown("""
 <div class="footer-text">
-    SAI Advanced Power Solutions • Module 1 BOM Generator v8.0 • Grok Design
+    SAI Advanced Power Solutions • Module 1 BOM Generator v1.2
 </div>
 """, unsafe_allow_html=True)

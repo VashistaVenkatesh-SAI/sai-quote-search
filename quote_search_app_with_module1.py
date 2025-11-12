@@ -50,23 +50,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS Styling - Grok-Inspired Design
+# CSS Styling - Exact Grok Layout
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
     :root {
         --grok-bg: #0a0a0a;
-        --grok-surface: #141414;
-        --grok-surface-hover: #1a1a1a;
+        --grok-surface: #1a1a1a;
+        --grok-surface-hover: #222222;
         --grok-border: #2a2a2a;
         --grok-text: #ffffff;
-        --grok-text-secondary: #888888;
-        --grok-accent: #00d9ff;
-        --grok-accent-hover: #00bfdd;
-        --grok-success: #00ff88;
-        --grok-warning: #ffaa00;
-        --grok-error: #ff4444;
+        --grok-text-secondary: #6b6b6b;
+        --grok-accent: #303030;
     }
     
     /* Global Styles */
@@ -75,33 +71,56 @@ st.markdown("""
     }
     
     .stApp {
-        background: linear-gradient(180deg, #0a0a0a 0%, #000000 100%);
+        background: #0a0a0a;
         color: var(--grok-text);
     }
     
     /* Hide Streamlit Elements */
     #MainMenu, footer, header {visibility: hidden;}
     .stDeployButton {display: none;}
+    section[data-testid="stSidebar"] {display: none;}
     
-    /* Main Container */
+    /* Main Container - Centered like Grok */
     .main .block-container {
-        max-width: 1400px;
-        padding-top: 2rem;
-        padding-bottom: 4rem;
+        max-width: 900px;
+        padding: 3rem 2rem;
+        margin: 0 auto;
     }
     
-    /* Header - Grok Style */
-    .grok-header {
+    /* Top Left Controls - Like Grok's corner buttons */
+    .top-controls {
+        position: fixed;
+        top: 1.5rem;
+        left: 1.5rem;
+        display: flex;
+        gap: 0.75rem;
+        z-index: 1000;
+    }
+    
+    .top-control-btn {
         background: var(--grok-surface);
         border: 1px solid var(--grok-border);
+        color: var(--grok-text-secondary);
+        padding: 0.625rem 1rem;
         border-radius: 20px;
-        padding: 2rem 2.5rem;
-        margin-bottom: 2.5rem;
-        text-align: center;
-        box-shadow: 0 4px 24px rgba(0, 217, 255, 0.08);
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
     }
     
-    .grok-header h1 {
+    .top-control-btn:hover {
+        background: var(--grok-surface-hover);
+        color: var(--grok-text);
+    }
+    
+    /* Logo - Centered at top like Grok */
+    .grok-logo {
+        text-align: center;
+        margin-bottom: 3rem;
+    }
+    
+    .grok-logo h1 {
         color: var(--grok-text);
         margin: 0;
         font-size: 2.5rem;
@@ -109,62 +128,109 @@ st.markdown("""
         letter-spacing: -0.02em;
     }
     
-    .grok-header p {
+    .grok-logo-badge {
         color: var(--grok-text-secondary);
-        margin: 0.75rem 0 0 0;
-        font-size: 1rem;
-        font-weight: 400;
-    }
-    
-    .grok-badge {
-        background: linear-gradient(135deg, var(--grok-accent) 0%, #0099cc 100%);
-        color: #000;
-        padding: 0.375rem 1rem;
-        border-radius: 20px;
         font-size: 0.75rem;
-        font-weight: 600;
-        display: inline-block;
-        margin-left: 1rem;
+        font-weight: 500;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.1em;
+        margin-top: 0.5rem;
     }
     
-    /* Chat Messages */
+    /* Search Bar Container - Exactly like Grok */
+    .search-container {
+        margin: 0 auto 2rem;
+        max-width: 700px;
+    }
+    
+    /* Main Search Input - Grok style with high curve */
+    .stChatInput {
+        margin-bottom: 1rem;
+    }
+    
+    .stChatInput > div {
+        background: var(--grok-surface);
+        border: 1px solid var(--grok-border);
+        border-radius: 30px !important;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    .stChatInput textarea {
+        background: transparent !important;
+        border: none !important;
+        color: var(--grok-text) !important;
+        padding: 1rem 1.5rem !important;
+        font-size: 1rem !important;
+        min-height: 50px !important;
+    }
+    
+    .stChatInput textarea::placeholder {
+        color: var(--grok-text-secondary) !important;
+    }
+    
+    /* Action Buttons Below Search - Like Grok's DeepSearch, Pick Personas, Voice */
+    .search-actions {
+        display: flex;
+        justify-content: center;
+        gap: 0.75rem;
+        margin-top: 1rem;
+    }
+    
+    .search-action-btn {
+        background: var(--grok-surface);
+        border: 1px solid var(--grok-border);
+        color: var(--grok-text-secondary);
+        padding: 0.625rem 1.25rem;
+        border-radius: 20px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .search-action-btn:hover {
+        background: var(--grok-surface-hover);
+        color: var(--grok-text);
+        border-color: #404040;
+    }
+    
+    /* Chat Messages - Monotone */
     .user-message {
         background: var(--grok-surface);
         border: 1px solid var(--grok-border);
         color: var(--grok-text);
         padding: 1rem 1.5rem;
-        border-radius: 16px;
-        margin: 1.5rem 0;
+        border-radius: 20px;
+        margin: 1.5rem auto;
         margin-left: auto;
         max-width: 85%;
         font-size: 0.95rem;
         line-height: 1.6;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     }
     
     .assistant-message {
-        background: linear-gradient(135deg, var(--grok-surface) 0%, #1a1a1a 100%);
+        background: var(--grok-surface);
         border: 1px solid var(--grok-border);
         color: var(--grok-text);
         padding: 1.5rem 2rem;
-        border-radius: 16px;
-        margin: 1.5rem 0;
+        border-radius: 20px;
+        margin: 1.5rem auto;
         max-width: 85%;
         font-size: 0.95rem;
         line-height: 1.7;
-        box-shadow: 0 4px 16px rgba(0, 217, 255, 0.06);
     }
     
-    /* BOM Card - Grok Style */
+    /* BOM Card - Monotone */
     .bom-card {
-        background: linear-gradient(135deg, var(--grok-surface) 0%, #181818 100%);
-        border: 1px solid var(--grok-accent);
+        background: var(--grok-surface);
+        border: 1px solid var(--grok-border);
         border-radius: 20px;
         padding: 2rem;
-        margin: 2rem 0;
-        box-shadow: 0 8px 32px rgba(0, 217, 255, 0.12);
+        margin: 2rem auto;
+        max-width: 100%;
     }
     
     .bom-header {
@@ -177,26 +243,26 @@ st.markdown("""
     }
     
     .bom-title {
-        font-size: 1.5rem;
+        font-size: 1.25rem;
         font-weight: 600;
-        color: var(--grok-accent);
+        color: var(--grok-text);
         letter-spacing: -0.01em;
     }
     
     .status-badge {
-        background: var(--grok-success);
-        color: #000;
+        background: var(--grok-accent);
+        color: var(--grok-text);
         padding: 0.5rem 1rem;
         border-radius: 20px;
-        font-size: 0.85rem;
-        font-weight: 600;
+        font-size: 0.75rem;
+        font-weight: 500;
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
     
-    /* Component Items */
+    /* Component Items - Monotone */
     .component-item {
-        background: var(--grok-surface);
+        background: transparent;
         border: 1px solid var(--grok-border);
         padding: 1rem 1.5rem;
         border-radius: 12px;
@@ -206,90 +272,66 @@ st.markdown("""
     
     .component-item:hover {
         background: var(--grok-surface-hover);
-        border-color: var(--grok-accent);
-        transform: translateX(4px);
+        border-color: #404040;
     }
     
     .component-number {
         font-family: 'Courier New', monospace;
-        color: var(--grok-accent);
-        font-weight: 600;
+        color: var(--grok-text);
+        font-weight: 500;
         font-size: 0.95rem;
     }
     
-    /* Buttons - Grok Style */
+    /* Buttons - Monotone Grok style */
     .stButton > button {
         background: var(--grok-surface);
         color: var(--grok-text);
         border: 1px solid var(--grok-border);
-        border-radius: 12px;
+        border-radius: 20px;
         padding: 0.75rem 1.5rem;
         font-weight: 500;
-        font-size: 0.95rem;
+        font-size: 0.875rem;
         transition: all 0.2s ease;
-        letter-spacing: 0.01em;
     }
     
     .stButton > button:hover {
-        background: var(--grok-accent);
-        color: #000;
-        border-color: var(--grok-accent);
-        box-shadow: 0 4px 16px rgba(0, 217, 255, 0.3);
-        transform: translateY(-2px);
-    }
-    
-    .stButton > button:active {
-        transform: translateY(0);
+        background: var(--grok-surface-hover);
+        border-color: #404040;
+        transform: translateY(-1px);
     }
     
     /* Download Button */
     .stDownloadButton > button {
-        background: linear-gradient(135deg, var(--grok-accent) 0%, #0099cc 100%);
-        color: #000;
-        border: none;
-        border-radius: 12px;
+        background: var(--grok-surface);
+        color: var(--grok-text);
+        border: 1px solid var(--grok-border);
+        border-radius: 20px;
         padding: 0.75rem 1.5rem;
-        font-weight: 600;
-        box-shadow: 0 4px 16px rgba(0, 217, 255, 0.3);
+        font-weight: 500;
     }
     
     .stDownloadButton > button:hover {
-        box-shadow: 0 6px 24px rgba(0, 217, 255, 0.4);
-        transform: translateY(-2px);
+        background: var(--grok-surface-hover);
+        border-color: #404040;
     }
     
-    /* Input Fields */
-    .stTextInput input, .stChatInput textarea {
-        background: var(--grok-surface) !important;
-        border: 1px solid var(--grok-border) !important;
-        border-radius: 12px !important;
-        color: var(--grok-text) !important;
-        padding: 0.875rem 1.25rem !important;
-        font-size: 0.95rem !important;
-    }
-    
-    .stTextInput input:focus, .stChatInput textarea:focus {
-        border-color: var(--grok-accent) !important;
-        box-shadow: 0 0 0 2px rgba(0, 217, 255, 0.1) !important;
-    }
-    
-    /* File Uploader */
+    /* File Uploader - Monotone */
     .stFileUploader {
-        background: var(--grok-surface);
-        border: 2px dashed var(--grok-border);
-        border-radius: 16px;
+        background: transparent;
+        border: 1px dashed var(--grok-border);
+        border-radius: 20px;
         padding: 2rem;
         transition: all 0.3s ease;
     }
     
     .stFileUploader:hover {
-        border-color: var(--grok-accent);
-        background: var(--grok-surface-hover);
+        border-color: #404040;
+        background: var(--grok-surface);
     }
     
-    /* Metrics */
+    /* Metrics - Monotone */
     .stMetric {
-        background: var(--grok-surface);
+        background: transparent;
         border: 1px solid var(--grok-border);
         border-radius: 12px;
         padding: 1rem;
@@ -297,19 +339,19 @@ st.markdown("""
     
     .stMetric label {
         color: var(--grok-text-secondary) !important;
-        font-size: 0.85rem !important;
+        font-size: 0.8rem !important;
         font-weight: 500 !important;
     }
     
     .stMetric [data-testid="stMetricValue"] {
-        color: var(--grok-accent) !important;
+        color: var(--grok-text) !important;
         font-size: 1.5rem !important;
         font-weight: 600 !important;
     }
     
-    /* Expander */
+    /* Expander - Monotone */
     .streamlit-expanderHeader {
-        background: var(--grok-surface);
+        background: transparent;
         border: 1px solid var(--grok-border);
         border-radius: 12px;
         color: var(--grok-text) !important;
@@ -318,20 +360,10 @@ st.markdown("""
     
     .streamlit-expanderHeader:hover {
         background: var(--grok-surface-hover);
-        border-color: var(--grok-accent);
+        border-color: #404040;
     }
     
-    /* Sidebar - Grok Style */
-    section[data-testid="stSidebar"] {
-        background: var(--grok-bg);
-        border-right: 1px solid var(--grok-border);
-    }
-    
-    section[data-testid="stSidebar"] > div {
-        background: var(--grok-bg);
-    }
-    
-    /* Info/Warning/Error Boxes */
+    /* Info/Success/Warning Boxes - Monotone */
     .stAlert {
         background: var(--grok-surface);
         border: 1px solid var(--grok-border);
@@ -339,42 +371,30 @@ st.markdown("""
         color: var(--grok-text);
     }
     
-    /* Success Box */
-    [data-baseweb="notification"][kind="success"] {
-        background: rgba(0, 255, 136, 0.1);
-        border: 1px solid var(--grok-success);
-    }
-    
-    /* Warning Box */
-    [data-baseweb="notification"][kind="warning"] {
-        background: rgba(255, 170, 0, 0.1);
-        border: 1px solid var(--grok-warning);
-    }
-    
-    /* Scrollbar */
+    /* Scrollbar - Minimal */
     ::-webkit-scrollbar {
-        width: 10px;
-        height: 10px;
+        width: 8px;
+        height: 8px;
     }
     
     ::-webkit-scrollbar-track {
-        background: var(--grok-bg);
+        background: transparent;
     }
     
     ::-webkit-scrollbar-thumb {
         background: var(--grok-border);
-        border-radius: 5px;
+        border-radius: 4px;
     }
     
     ::-webkit-scrollbar-thumb:hover {
-        background: var(--grok-accent);
+        background: #404040;
     }
     
-    /* Code Blocks */
+    /* Code Blocks - Monotone */
     code {
         background: var(--grok-surface) !important;
         border: 1px solid var(--grok-border) !important;
-        color: var(--grok-accent) !important;
+        color: var(--grok-text) !important;
         padding: 0.25rem 0.5rem !important;
         border-radius: 6px !important;
         font-family: 'Courier New', monospace !important;
@@ -384,6 +404,16 @@ st.markdown("""
     hr {
         border-color: var(--grok-border);
         margin: 2rem 0;
+        opacity: 0.5;
+    }
+    
+    /* Footer - Minimal like Grok */
+    .footer-text {
+        text-align: center;
+        color: var(--grok-text-secondary);
+        font-size: 0.75rem;
+        margin-top: 4rem;
+        padding: 2rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -814,17 +844,136 @@ def display_bom_card(bom_data, unique_id=None):
             key=download_key
         )
 
-# Header
-module1_badge = '<span class="grok-badge">AI Powered</span>' if MODULE1_AVAILABLE else ''
-st.markdown(f"""
-<div class="grok-header">
-    <h1>SAI Module 1 {module1_badge}</h1>
-    <p>Upload quote PDFs for instant multi-section BOM generation</p>
+# Top Left Controls - Grok style
+col1, col2, col3, col_spacer = st.columns([0.8, 0.8, 0.8, 8])
+with col1:
+    if st.button("👤 Out", key="signout_top"):
+        st.session_state.authenticated = False
+        st.session_state.current_user = None
+        st.rerun()
+with col2:
+    if st.button("🗑️ Clear", key="clear_top"):
+        st.session_state.messages = []
+        st.rerun()
+with col3:
+    msg_count = len(st.session_state.messages)
+    st.button(f"📊 {msg_count}", key="stats_top", disabled=True)
+
+st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+
+# Centered Logo - Grok style
+st.markdown("""
+<div class="grok-logo">
+    <h1>SAI Module 1</h1>
+    <div class="grok-logo-badge">BOM Generator</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Chat input
-user_input = st.chat_input("Type specs for Module 1 BOM... (e.g., '90H x 40W x 60D, Emax 6.2')")
+# Chat input - main search bar
+user_input = st.chat_input("What do you want to know?")
+
+# Action buttons below search - Grok style
+st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+with col1:
+    if MODULE1_AVAILABLE and PDF_AVAILABLE:
+        uploaded_pdf = st.file_uploader(
+            "📁 Browse Files",
+            type=['pdf'],
+            key="pdf_uploader",
+            label_visibility="collapsed"
+        )
+with col2:
+    if MODULE1_AVAILABLE:
+        if st.button("📋 List Assemblies", key="list_asm", use_container_width=True):
+            matcher = get_matcher()
+            assembly_list = "**Available Module 1 Assemblies:**\n\n"
+            for asm_num in sorted(matcher.assembly_specs.keys()):
+                specs = matcher.assembly_specs[asm_num]
+                assembly_list += f"**{asm_num}**: {specs['height']}\"H × {specs['width']}\"W × {specs['depth']}\"D - {specs['breaker_type']}\n\n"
+            
+            st.session_state.messages.append({"role": "user", "content": "List all assemblies"})
+            st.session_state.messages.append({"role": "assistant", "content": assembly_list, "type": "text"})
+            st.rerun()
+
+st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+
+# Handle file upload
+if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
+    if st.button("🔧 Generate BOM", key="gen_bom", use_container_width=True):
+        with st.spinner("📄 Reading PDF..."):
+            text = extract_text_from_pdf(uploaded_pdf)
+            
+            if text:
+                with st.spinner("🤖 Analyzing sections..."):
+                    specs_json = extract_specs_from_text(text)
+                    
+                    if specs_json and 'sections' in specs_json:
+                        num_sections = len(specs_json['sections'])
+                        
+                        # Process each section
+                        all_boms = []
+                        no_match_sections = []
+                        
+                        for section in specs_json['sections']:
+                            section_id = section.get('identifier', 'Unknown')
+                            matched_assembly = section.get('matched_assembly', None)
+                            match_pct = section.get('match_percentage', 0)
+                            reasoning = section.get('reasoning', '')
+                            suggested = section.get('suggested_assemblies', [])
+                            
+                            if matched_assembly and match_pct >= 40:
+                                try:
+                                    matcher = get_matcher()
+                                    section_bom = matcher.generate_bom(matched_assembly)
+                                    all_boms.append({
+                                        'section_id': section_id,
+                                        'assembly': matched_assembly,
+                                        'bom': section_bom,
+                                        'reasoning': reasoning,
+                                        'match_percentage': match_pct
+                                    })
+                                except Exception as e:
+                                    st.warning(f"⚠️ Error for {section_id}: {e}")
+                            else:
+                                no_match_sections.append({
+                                    'section_id': section_id,
+                                    'reasoning': reasoning,
+                                    'match_percentage': match_pct,
+                                    'suggested': suggested
+                                })
+                        
+                        # Create messages
+                        summary = f"📄 {uploaded_pdf.name}\n\n"
+                        if all_boms:
+                            summary += f"✅ {len(all_boms)} section(s) matched\n"
+                        if no_match_sections:
+                            summary += f"⚠️ {len(no_match_sections)} section(s) with no match\n"
+                        
+                        st.session_state.messages.append({"role": "user", "content": summary})
+                        
+                        full_message = ""
+                        if all_boms:
+                            for bom in all_boms:
+                                full_message += f"**{bom['section_id']}** → {bom['assembly']} ({bom['match_percentage']}%)\n\n"
+                        if no_match_sections:
+                            for nm in no_match_sections:
+                                full_message += f"⚠️ **{nm['section_id']}** ({nm['match_percentage']}%)\n{nm['reasoning']}\n\n"
+                        
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": full_message,
+                            "all_boms": all_boms,
+                            "no_match_sections": no_match_sections,
+                            "type": "multi_bom"
+                        })
+                        
+                        st.rerun()
+                    else:
+                        st.error("❌ Could not extract sections")
+            else:
+                st.error("❌ Could not read PDF")
+
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -910,172 +1059,9 @@ for message in st.session_state.messages:
                     
                     st.markdown("---")
 
-# Sidebar
-with st.sidebar:
-    st.markdown(f"### 👤 {st.session_state.get('current_user', 'User')}")
-    
-    if st.button("🚪 Sign out"):
-        st.session_state.authenticated = False
-        st.session_state.current_user = None
-        st.rerun()
-    
-    st.markdown("---")
-    
-    # PDF Upload
-    if MODULE1_AVAILABLE and PDF_AVAILABLE:
-        st.markdown("### 📤 Upload Quote PDF")
-        st.caption("AI analyzes all sections automatically")
-        
-        uploaded_pdf = st.file_uploader(
-            "Drop quote PDF here",
-            type=['pdf'],
-            help="Upload quote to auto-generate BOMs for all sections",
-            key="pdf_uploader"
-        )
-        
-        if uploaded_pdf is not None:
-            if st.button("🔧 Generate BOM", use_container_width=True):
-                with st.spinner("📄 Reading PDF..."):
-                    text = extract_text_from_pdf(uploaded_pdf)
-                    
-                    if text:
-                        with st.spinner("🤖 Analyzing all sections..."):
-                            specs_json = extract_specs_from_text(text)
-                            
-                            if specs_json and 'sections' in specs_json:
-                                num_sections = len(specs_json['sections'])
-                                st.success(f"✅ Found {num_sections} section(s) in quote")
-                                
-                                # Process EACH section
-                                all_boms = []
-                                no_match_sections = []
-                                
-                                for section in specs_json['sections']:
-                                    section_id = section.get('identifier', 'Unknown')
-                                    matched_assembly = section.get('matched_assembly', None)
-                                    match_pct = section.get('match_percentage', 0)
-                                    reasoning = section.get('reasoning', '')
-                                    suggested = section.get('suggested_assemblies', [])
-                                    
-                                    # Only generate BOM if match percentage is good (≥40%)
-                                    if matched_assembly and match_pct >= 40:
-                                        # Generate BOM for this section
-                                        try:
-                                            matcher = get_matcher()
-                                            section_bom = matcher.generate_bom(matched_assembly)
-                                            
-                                            all_boms.append({
-                                                'section_id': section_id,
-                                                'assembly': matched_assembly,
-                                                'bom': section_bom,
-                                                'reasoning': reasoning,
-                                                'match_percentage': match_pct
-                                            })
-                                            
-                                        except Exception as e:
-                                            st.warning(f"⚠️ Could not generate BOM for {section_id}: {e}")
-                                    else:
-                                        # Match too low or no match - store for suggestions
-                                        no_match_sections.append({
-                                            'section_id': section_id,
-                                            'reasoning': reasoning,
-                                            'match_percentage': match_pct,
-                                            'suggested': suggested,
-                                            'specs': section.get('dimensions', {})
-                                        })
-                                
-                                # Create summary message
-                                summary = f"📄 {uploaded_pdf.name}\n\n"
-                                if all_boms:
-                                    summary += f"✅ Matched {len(all_boms)} section(s):\n"
-                                    for bom_data in all_boms:
-                                        summary += f"• {bom_data['section_id']}: Assembly {bom_data['assembly']} ({bom_data['match_percentage']}%)\n"
-                                
-                                if no_match_sections:
-                                    summary += f"\n⚠️ {len(no_match_sections)} section(s) with no match:\n"
-                                    for no_match in no_match_sections:
-                                        summary += f"• {no_match['section_id']} ({no_match['match_percentage']}% - below threshold)\n"
-                                
-                                st.session_state.messages.append({
-                                    "role": "user",
-                                    "content": summary
-                                })
-                                
-                                # Add assistant message
-                                full_message = ""
-                                
-                                if all_boms:
-                                    full_message += f"✅ Generated BOMs for {len(all_boms)} sections:\n\n"
-                                    for bom_data in all_boms:
-                                        full_message += f"**{bom_data['section_id']}** → Assembly {bom_data['assembly']} ({bom_data['match_percentage']}% match)\n"
-                                        if bom_data['reasoning']:
-                                            full_message += f"{bom_data['reasoning']}\n\n"
-                                
-                                if no_match_sections:
-                                    full_message += f"\n⚠️ **{len(no_match_sections)} section(s) with no exact match:**\n\n"
-                                    for no_match in no_match_sections:
-                                        full_message += f"**{no_match['section_id']}** (Match: {no_match['match_percentage']}%)\n"
-                                        full_message += f"{no_match['reasoning']}\n"
-                                        
-                                        if no_match['suggested']:
-                                            full_message += f"\n**Suggested alternatives:**\n"
-                                            for sugg in no_match['suggested'][:3]:
-                                                full_message += f"• Assembly {sugg['assembly']}: {sugg['reason']} ({sugg.get('match_pct', 0)}%)\n"
-                                        full_message += "\n"
-                                
-                                st.session_state.messages.append({
-                                    "role": "assistant",
-                                    "content": full_message,
-                                    "all_boms": all_boms,  # Store matched BOMs
-                                    "no_match_sections": no_match_sections,  # Store no-match sections
-                                    "type": "multi_bom"
-                                })
-                                
-                                st.rerun()
-                            else:
-                                st.error("❌ Could not extract sections from quote")
-                    else:
-                        st.error("❌ Could not read PDF")
-        
-        st.markdown("---")
-    
-    # Examples
-    if MODULE1_AVAILABLE:
-        st.markdown("### 💡 Example Queries")
-        
-        with st.expander("Try these"):
-            if st.button("90H x 40W x 60D, Emax 6.2", use_container_width=True):
-                st.session_state.messages.append({
-                    "role": "user",
-                    "content": "90H x 40W x 60D, Emax 6.2, fixed, front and rear"
-                })
-                st.rerun()
-            
-            if st.button("78H x 42W x 33D, Square D", use_container_width=True):
-                st.session_state.messages.append({
-                    "role": "user",
-                    "content": "78H x 42W x 33D, Square D"
-                })
-                st.rerun()
-        
-        if st.button("📋 List All Assemblies", use_container_width=True):
-            matcher = get_matcher()
-            st.markdown("#### Available Assemblies:")
-            for asm_num in matcher.assembly_specs.keys():
-                specs = matcher.assembly_specs[asm_num]
-                st.caption(f"**{asm_num}**")
-                st.caption(f"{specs['height']}\"H x {specs['width']}\"W x {specs['depth']}\"D")
-                st.markdown("")
-        
-        st.markdown("---")
-    
-    st.markdown("### 📊 Stats")
-    st.caption(f"{len(st.session_state.messages)} messages")
-    
-    if st.button("🗑️ Clear chat"):
-        st.session_state.messages = []
-        st.rerun()
-    
-    st.markdown("---")
-    st.caption("SAI Advanced Power Solutions")
-    st.caption("Module 1 BOM Generator v7.0 • Grok Design")
+# Footer
+st.markdown("""
+<div class="footer-text">
+    SAI Advanced Power Solutions • Module 1 BOM Generator v8.0 • Grok Design
+</div>
+""", unsafe_allow_html=True)

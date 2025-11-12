@@ -50,157 +50,340 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS Styling
+# CSS Styling - Grok-Inspired Design
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
     :root {
-        --bg-primary: #1e1e1e;
-        --bg-secondary: #2d2d2d;
-        --text-primary: #e8e8e8;
-        --text-secondary: #b0b0b0;
-        --accent-blue: #2563EB;
-        --accent-green: #10B981;
-        --border-color: #404040;
+        --grok-bg: #0a0a0a;
+        --grok-surface: #141414;
+        --grok-surface-hover: #1a1a1a;
+        --grok-border: #2a2a2a;
+        --grok-text: #ffffff;
+        --grok-text-secondary: #888888;
+        --grok-accent: #00d9ff;
+        --grok-accent-hover: #00bfdd;
+        --grok-success: #00ff88;
+        --grok-warning: #ffaa00;
+        --grok-error: #ff4444;
+    }
+    
+    /* Global Styles */
+    * {
+        font-family: 'Corbel', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
     
     .stApp {
-        background-color: #1e1e1e;
-        color: #e8e8e8;
+        background: linear-gradient(180deg, #0a0a0a 0%, #000000 100%);
+        color: var(--grok-text);
     }
     
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
+    /* Hide Streamlit Elements */
+    #MainMenu, footer, header {visibility: hidden;}
+    .stDeployButton {display: none;}
     
-    .main-header {
-        background: #2d2d2d;
-        padding: 1.5rem 2rem;
-        border-radius: 12px;
-        margin-bottom: 2rem;
-        border: 1px solid #404040;
+    /* Main Container */
+    .main .block-container {
+        max-width: 1400px;
+        padding-top: 2rem;
+        padding-bottom: 4rem;
     }
     
-    .main-header h1 {
-        color: #e8e8e8;
+    /* Header - Grok Style */
+    .grok-header {
+        background: var(--grok-surface);
+        border: 1px solid var(--grok-border);
+        border-radius: 20px;
+        padding: 2rem 2.5rem;
+        margin-bottom: 2.5rem;
+        text-align: center;
+        box-shadow: 0 4px 24px rgba(0, 217, 255, 0.08);
+    }
+    
+    .grok-header h1 {
+        color: var(--grok-text);
         margin: 0;
-        font-size: 1.75rem;
+        font-size: 2.5rem;
         font-weight: 600;
+        letter-spacing: -0.02em;
     }
     
-    .main-header p {
-        color: #b0b0b0;
-        margin: 0.5rem 0 0 0;
-        font-size: 0.95rem;
+    .grok-header p {
+        color: var(--grok-text-secondary);
+        margin: 0.75rem 0 0 0;
+        font-size: 1rem;
+        font-weight: 400;
     }
     
-    .module1-badge {
-        background: #10B981;
-        color: white;
-        padding: 0.25rem 0.75rem;
-        border-radius: 12px;
+    .grok-badge {
+        background: linear-gradient(135deg, var(--grok-accent) 0%, #0099cc 100%);
+        color: #000;
+        padding: 0.375rem 1rem;
+        border-radius: 20px;
         font-size: 0.75rem;
         font-weight: 600;
         display: inline-block;
         margin-left: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     }
     
+    /* Chat Messages */
     .user-message {
-        background: #2563EB;
-        color: white;
-        padding: 1rem 1.25rem;
-        border-radius: 18px;
+        background: var(--grok-surface);
+        border: 1px solid var(--grok-border);
+        color: var(--grok-text);
+        padding: 1rem 1.5rem;
+        border-radius: 16px;
         margin: 1.5rem 0;
-        max-width: 85%;
         margin-left: auto;
+        max-width: 85%;
         font-size: 0.95rem;
-        line-height: 1.5;
+        line-height: 1.6;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     }
     
     .assistant-message {
-        background: #2d2d2d;
-        color: #e8e8e8;
-        padding: 1.25rem 1.5rem;
-        border-radius: 18px;
+        background: linear-gradient(135deg, var(--grok-surface) 0%, #1a1a1a 100%);
+        border: 1px solid var(--grok-border);
+        color: var(--grok-text);
+        padding: 1.5rem 2rem;
+        border-radius: 16px;
         margin: 1.5rem 0;
         max-width: 85%;
-        border: 1px solid #404040;
         font-size: 0.95rem;
-        line-height: 1.6;
+        line-height: 1.7;
+        box-shadow: 0 4px 16px rgba(0, 217, 255, 0.06);
     }
     
+    /* BOM Card - Grok Style */
     .bom-card {
-        background: linear-gradient(135deg, #2d2d2d 0%, #3a3a3a 100%);
-        border-radius: 16px;
+        background: linear-gradient(135deg, var(--grok-surface) 0%, #181818 100%);
+        border: 1px solid var(--grok-accent);
+        border-radius: 20px;
         padding: 2rem;
-        margin: 1.5rem 0;
-        border: 2px solid #10B981;
-        box-shadow: 0 8px 24px rgba(16, 185, 129, 0.2);
+        margin: 2rem 0;
+        box-shadow: 0 8px 32px rgba(0, 217, 255, 0.12);
     }
     
     .bom-header {
         display: flex;
         align-items: center;
-        gap: 1rem;
+        justify-content: space-between;
         margin-bottom: 1.5rem;
-        padding-bottom: 1rem;
-        border-bottom: 1px solid #404040;
+        padding-bottom: 1.5rem;
+        border-bottom: 1px solid var(--grok-border);
     }
     
     .bom-title {
         font-size: 1.5rem;
-        font-weight: 700;
-        color: #10B981;
+        font-weight: 600;
+        color: var(--grok-accent);
+        letter-spacing: -0.01em;
     }
     
+    .status-badge {
+        background: var(--grok-success);
+        color: #000;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    /* Component Items */
     .component-item {
-        background: #2d2d2d;
-        padding: 0.875rem 1.25rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
-        border-left: 3px solid #10B981;
+        background: var(--grok-surface);
+        border: 1px solid var(--grok-border);
+        padding: 1rem 1.5rem;
+        border-radius: 12px;
+        margin: 0.75rem 0;
+        transition: all 0.2s ease;
+    }
+    
+    .component-item:hover {
+        background: var(--grok-surface-hover);
+        border-color: var(--grok-accent);
+        transform: translateX(4px);
     }
     
     .component-number {
         font-family: 'Courier New', monospace;
-        color: #10B981;
+        color: var(--grok-accent);
         font-weight: 600;
+        font-size: 0.95rem;
     }
     
-    .status-exact {
-        background: #10B981;
-        color: white;
-        padding: 0.375rem 0.875rem;
-        border-radius: 16px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-    
+    /* Buttons - Grok Style */
     .stButton > button {
-        background: #2563EB;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.5rem 1rem;
+        background: var(--grok-surface);
+        color: var(--grok-text);
+        border: 1px solid var(--grok-border);
+        border-radius: 12px;
+        padding: 0.75rem 1.5rem;
         font-weight: 500;
-        transition: all 0.2s;
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
+        letter-spacing: 0.01em;
     }
     
     .stButton > button:hover {
-        background: #1d4ed8;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        background: var(--grok-accent);
+        color: #000;
+        border-color: var(--grok-accent);
+        box-shadow: 0 4px 16px rgba(0, 217, 255, 0.3);
+        transform: translateY(-2px);
     }
     
+    .stButton > button:active {
+        transform: translateY(0);
+    }
+    
+    /* Download Button */
+    .stDownloadButton > button {
+        background: linear-gradient(135deg, var(--grok-accent) 0%, #0099cc 100%);
+        color: #000;
+        border: none;
+        border-radius: 12px;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        box-shadow: 0 4px 16px rgba(0, 217, 255, 0.3);
+    }
+    
+    .stDownloadButton > button:hover {
+        box-shadow: 0 6px 24px rgba(0, 217, 255, 0.4);
+        transform: translateY(-2px);
+    }
+    
+    /* Input Fields */
+    .stTextInput input, .stChatInput textarea {
+        background: var(--grok-surface) !important;
+        border: 1px solid var(--grok-border) !important;
+        border-radius: 12px !important;
+        color: var(--grok-text) !important;
+        padding: 0.875rem 1.25rem !important;
+        font-size: 0.95rem !important;
+    }
+    
+    .stTextInput input:focus, .stChatInput textarea:focus {
+        border-color: var(--grok-accent) !important;
+        box-shadow: 0 0 0 2px rgba(0, 217, 255, 0.1) !important;
+    }
+    
+    /* File Uploader */
+    .stFileUploader {
+        background: var(--grok-surface);
+        border: 2px dashed var(--grok-border);
+        border-radius: 16px;
+        padding: 2rem;
+        transition: all 0.3s ease;
+    }
+    
+    .stFileUploader:hover {
+        border-color: var(--grok-accent);
+        background: var(--grok-surface-hover);
+    }
+    
+    /* Metrics */
+    .stMetric {
+        background: var(--grok-surface);
+        border: 1px solid var(--grok-border);
+        border-radius: 12px;
+        padding: 1rem;
+    }
+    
+    .stMetric label {
+        color: var(--grok-text-secondary) !important;
+        font-size: 0.85rem !important;
+        font-weight: 500 !important;
+    }
+    
+    .stMetric [data-testid="stMetricValue"] {
+        color: var(--grok-accent) !important;
+        font-size: 1.5rem !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        background: var(--grok-surface);
+        border: 1px solid var(--grok-border);
+        border-radius: 12px;
+        color: var(--grok-text) !important;
+        font-weight: 500;
+    }
+    
+    .streamlit-expanderHeader:hover {
+        background: var(--grok-surface-hover);
+        border-color: var(--grok-accent);
+    }
+    
+    /* Sidebar - Grok Style */
+    section[data-testid="stSidebar"] {
+        background: var(--grok-bg);
+        border-right: 1px solid var(--grok-border);
+    }
+    
+    section[data-testid="stSidebar"] > div {
+        background: var(--grok-bg);
+    }
+    
+    /* Info/Warning/Error Boxes */
+    .stAlert {
+        background: var(--grok-surface);
+        border: 1px solid var(--grok-border);
+        border-radius: 12px;
+        color: var(--grok-text);
+    }
+    
+    /* Success Box */
+    [data-baseweb="notification"][kind="success"] {
+        background: rgba(0, 255, 136, 0.1);
+        border: 1px solid var(--grok-success);
+    }
+    
+    /* Warning Box */
+    [data-baseweb="notification"][kind="warning"] {
+        background: rgba(255, 170, 0, 0.1);
+        border: 1px solid var(--grok-warning);
+    }
+    
+    /* Scrollbar */
     ::-webkit-scrollbar {
-        width: 8px;
+        width: 10px;
+        height: 10px;
     }
     
     ::-webkit-scrollbar-track {
-        background: #2d2d2d;
+        background: var(--grok-bg);
     }
     
     ::-webkit-scrollbar-thumb {
-        background: #404040;
-        border-radius: 4px;
+        background: var(--grok-border);
+        border-radius: 5px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--grok-accent);
+    }
+    
+    /* Code Blocks */
+    code {
+        background: var(--grok-surface) !important;
+        border: 1px solid var(--grok-border) !important;
+        color: var(--grok-accent) !important;
+        padding: 0.25rem 0.5rem !important;
+        border-radius: 6px !important;
+        font-family: 'Courier New', monospace !important;
+    }
+    
+    /* Dividers */
+    hr {
+        border-color: var(--grok-border);
+        margin: 2rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -244,7 +427,7 @@ def check_password():
         return True
     
     st.markdown("""
-    <div class="main-header">
+    <div class="grok-header">
         <h1>SAI Module 1 BOM Generator</h1>
         <p>Sign in to access the automated BOM generation system</p>
     </div>
@@ -556,9 +739,9 @@ def display_bom_card(bom_data, unique_id=None):
     
     # Create badge with match percentage if available
     if match_percentage is not None:
-        badge_html = f'<span class="status-exact">✅ {match_percentage}% Match</span>'
+        badge_html = f'<span class="status-badge">✓ {match_percentage}% Match</span>'
     else:
-        badge_html = '<span class="status-exact">✅ Match Found</span>'
+        badge_html = '<span class="status-badge">✓ Matched</span>'
     
     st.markdown(f"""
     <div class="bom-card">
@@ -632,9 +815,9 @@ def display_bom_card(bom_data, unique_id=None):
         )
 
 # Header
-module1_badge = '<span class="module1-badge">AI Powered</span>' if MODULE1_AVAILABLE else ''
+module1_badge = '<span class="grok-badge">AI Powered</span>' if MODULE1_AVAILABLE else ''
 st.markdown(f"""
-<div class="main-header">
+<div class="grok-header">
     <h1>SAI Module 1 {module1_badge}</h1>
     <p>Upload quote PDFs for instant multi-section BOM generation</p>
 </div>
@@ -895,4 +1078,4 @@ with st.sidebar:
     
     st.markdown("---")
     st.caption("SAI Advanced Power Solutions")
-    st.caption("Module 1 BOM Generator v6.0")
+    st.caption("Module 1 BOM Generator v7.0 • Grok Design")

@@ -405,7 +405,7 @@ Return complete JSON with all sections and natural explanations."""
         st.error(f"Error extracting specs: {e}")
         return None
 
-def display_bom_card(bom_data):
+def display_bom_card(bom_data, unique_id=None):
     """Display Module 1 BOM card with match explanations"""
     
     status = bom_data.get('status')
@@ -572,7 +572,10 @@ def display_bom_card(bom_data):
             """, unsafe_allow_html=True)
     
     # Export to CSV
-    if st.button("📥 Export BOM to CSV", key=f"export_{bom['assembly_number']}"):
+    export_key = f"export_{bom['assembly_number']}" if not unique_id else f"export_{unique_id}"
+    download_key = f"download_{bom['assembly_number']}" if not unique_id else f"download_{unique_id}"
+    
+    if st.button("📥 Export BOM to CSV", key=export_key):
         csv_buffer = io.StringIO()
         csv_buffer.write("Item,Part Number,Description,Quantity\n")
         
@@ -589,7 +592,7 @@ def display_bom_card(bom_data):
             data=csv_str,
             file_name=f"{bom['assembly_number']}_BOM.csv",
             mime="text/csv",
-            key=f"download_{bom['assembly_number']}"
+            key=download_key
         )
 
 # Header
@@ -637,17 +640,19 @@ for message in st.session_state.messages:
         
         # Handle multiple BOMs (multi-section quotes)
         elif message.get("type") == "multi_bom" and "all_boms" in message:
-            for bom_data in message["all_boms"]:
+            for idx, bom_data in enumerate(message["all_boms"]):
                 st.markdown(f"### 📦 {bom_data['section_id']}")
                 
-                # Create module1_result format for display
+                # Create module1_result format for display with unique ID
                 module1_result = {
                     'status': 'exact_match',
                     'bom': bom_data['bom'],
                     'message': f"✅ {bom_data['section_id']}: Assembly {bom_data['assembly']}"
                 }
                 
-                display_bom_card(module1_result)
+                # Pass unique ID to avoid duplicate widget keys
+                unique_id = f"{bom_data['section_id']}_{bom_data['assembly']}_{idx}"
+                display_bom_card(module1_result, unique_id=unique_id)
                 st.markdown("---")
 
 # Sidebar

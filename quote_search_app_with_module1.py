@@ -949,7 +949,7 @@ st.markdown("<div style='height: 5rem;'></div>", unsafe_allow_html=True)
 st.markdown("""
 <div class="app-logo">
     <h1>Voltrix</h1>
-    <div class="app-logo-badge" style="font-size: 2.5rem; line-height: 1;">⚡</div>
+    <div class="app-logo-badge" style="font-size: 5.5rem; line-height: 1;">⚡</div>
 </div>
 """, unsafe_allow_html=True)
 

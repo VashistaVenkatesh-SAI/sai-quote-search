@@ -371,19 +371,69 @@ Return complete JSON with all technical details."""
 
 def display_bom_card(bom_data):
     """Display Module 1 BOM in a beautiful card"""
+    
+    # If no exact match, show selection buttons
+    status = bom_data.get('status')
+    matched_assemblies = bom_data.get('matched_assemblies', [])
+    
+    if status in ['ambiguous', 'no_match'] and matched_assemblies:
+        # Show selection buttons for user to choose
+        st.markdown("### 🔍 Select an assembly:")
+        
+        matcher = get_matcher()
+        
+        # Show up to 9 assemblies in 3 columns
+        num_assemblies = min(len(matched_assemblies), 9)
+        cols_per_row = 3
+        
+        for i in range(0, num_assemblies, cols_per_row):
+            cols = st.columns(cols_per_row)
+            for j in range(cols_per_row):
+                idx = i + j
+                if idx < num_assemblies:
+                    assembly_num = matched_assemblies[idx]
+                    specs = matcher.assembly_specs[assembly_num]
+                    
+                    with cols[j]:
+                        # Create button with assembly info
+                        button_text = f"**{assembly_num}**"
+                        if st.button(button_text, key=f"select_{assembly_num}_{idx}", use_container_width=True):
+                            # Generate BOM for selected assembly
+                            selected_bom = matcher.generate_bom(assembly_num)
+                            
+                            st.session_state.messages.append({
+                                "role": "user",
+                                "content": f"Show BOM for {assembly_num}"
+                            })
+                            
+                            st.session_state.messages.append({
+                                "role": "assistant",
+                                "content": f"✅ Showing BOM for Assembly {assembly_num}",
+                                "module1_result": {
+                                    'status': 'exact_match',
+                                    'bom': selected_bom,
+                                    'message': f"✅ BOM for {assembly_num}"
+                                },
+                                "type": "module1"
+                            })
+                            
+                            st.rerun()
+                        
+                        # Show specs below button
+                        st.caption(f"{specs['height']}\"H × {specs['width']}\"W × {specs['depth']}\"D")
+                        st.caption(f"{specs['breaker_type'][:30]}...")
+                        st.caption(f"{specs['mount']} | {specs['access']}")
+        
+        return  # Exit early, don't show BOM card yet
+    
+    # Show actual BOM card if exact match
     if not bom_data or 'bom' not in bom_data or not bom_data['bom']:
         return
     
     bom = bom_data['bom']
-    status = bom_data['status']
     
     # Status badge
-    if status == 'exact_match':
-        badge_html = '<span class="status-exact">✅ Exact Match</span>'
-    elif status == 'ambiguous':
-        badge_html = '<span class="status-ambiguous">⚠️ Multiple Matches</span>'
-    else:
-        badge_html = '<span class="status-nomatch">❌ No Match</span>'
+    badge_html = '<span class="status-exact">✅ Match Found</span>'
     
     st.markdown(f"""
     <div class="bom-card">

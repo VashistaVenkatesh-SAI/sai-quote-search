@@ -71,7 +71,7 @@ st.markdown("""
     }
     
     .stApp {
-        background: #0a0a0a !important;
+        background: #000000 !important;
         color: var(--text);
     }
     

@@ -14,8 +14,13 @@ logger = logging.getLogger(__name__)
 class Module1Matcher:
     """Match quote specs to Module 1 assemblies"""
     
-    def __init__(self, excel_path: str = "Module 1.xlsx"):
-        """Initialize with Module_1.xlsx"""
+    def __init__(self, excel_path: str = None):
+        """Initialize with Module 1.xlsx"""
+        if excel_path is None:
+            # Default to Module 1.xlsx in the same directory as this script
+            import os
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            excel_path = os.path.join(script_dir, "Module 1.xlsx")
         self.excel_path = excel_path
         self.assemblies = {}
         self.assembly_specs = {}
@@ -309,26 +314,26 @@ class Module1Matcher:
         
         elif len(matches) > 1:
             message = (f"⚠️ Found {len(matches)} assemblies matching your specs.\n"
-                      f"   Assemblies: {', '.join(matches)}\n"
-                      f"   Please specify:\n"
-                      f"   • Access type: Front only OR Front and rear?\n"
-                      f"   • Mount type: Fixed OR Drawout?")
+                      f"   Please select one below:")
             
             return matches, 'ambiguous', message
         
         else:
             # Find closest matches
-            closest = self._find_closest_matches(features, top_n=3)
+            closest = self._find_closest_matches(features, top_n=9)
             
-            message = (f"❌ No exact match found.\n"
-                      f"   Closest options:\n")
+            # Extract just the assembly numbers
+            closest_assemblies = [asm for asm, score in closest]
             
-            for asm, score in closest:
+            message = (f"⚠️ Found {len(closest_assemblies)} assemblies matching your specs.\n"
+                      f"   Please select one below:")
+            
+            for asm, score in closest[:3]:  # Show top 3 in message
                 specs = self.assembly_specs[asm]
-                message += (f"   • {asm}: {specs['height']}\"H x {specs['width']}\"W x {specs['depth']}\"D, "
-                          f"{specs['breaker_type']}\n")
+                message += (f"\n   • {asm}: {specs['height']}\"H x {specs['width']}\"W x {specs['depth']}\"D, "
+                          f"{specs['breaker_type']}")
             
-            return [], 'no_match', message
+            return closest_assemblies, 'no_match', message
     
     def _features_match(self, features: Dict, specs: Dict) -> bool:
         """Check if all features match"""
@@ -390,7 +395,7 @@ class Module1Matcher:
         
         return False
     
-    def _find_closest_matches(self, features: Dict, top_n: int = 3) -> List[Tuple[str, int]]:
+    def _find_closest_matches(self, features: Dict, top_n: int = 9) -> List[Tuple[str, int]]:
         """Find closest matching assemblies"""
         scores = []
         
@@ -418,6 +423,7 @@ class Module1Matcher:
         # Sort by score
         scores.sort(key=lambda x: x[1], reverse=True)
         
+        # Return more options for user to choose from
         return scores[:top_n]
     
     def generate_bom(self, assembly_num: str) -> Dict:

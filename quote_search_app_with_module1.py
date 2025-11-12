@@ -44,7 +44,7 @@ openai.api_version = "2024-02-01"
 
 # Page config
 st.set_page_config(
-    page_title="Voltrix",
+    page_title="VOLTRIX",
     page_icon="V",
     layout="wide",
     initial_sidebar_state="collapsed"

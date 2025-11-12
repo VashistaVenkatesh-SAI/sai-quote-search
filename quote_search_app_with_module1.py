@@ -50,19 +50,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS Styling - Exact Grok Layout
+# CSS Styling - Modern Monotone Dark Theme
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
     :root {
-        --grok-bg: #0a0a0a;
-        --grok-surface: #1a1a1a;
-        --grok-surface-hover: #222222;
-        --grok-border: #2a2a2a;
-        --grok-text: #ffffff;
-        --grok-text-secondary: #6b6b6b;
-        --grok-accent: #303030;
+        --bg-dark: #0a0a0a;
+        --surface: #1a1a1a;
+        --surface-hover: #222222;
+        --border: #2a2a2a;
+        --text: #ffffff;
+        --text-secondary: #6b6b6b;
+        --accent: #303030;
     }
     
     /* Global Styles */
@@ -72,7 +72,7 @@ st.markdown("""
     
     .stApp {
         background: #0a0a0a !important;
-        color: var(--grok-text);
+        color: var(--text);
     }
     
     /* Force uniform background */
@@ -85,14 +85,14 @@ st.markdown("""
     .stDeployButton {display: none;}
     section[data-testid="stSidebar"] {display: none !important;}
     
-    /* Main Container - Centered like Grok */
+    /* Main Container - Centered clean and modern */
     .main .block-container {
         max-width: 900px;
         padding: 1rem 2rem 4rem 2rem;
         margin: 0 auto;
     }
     
-    /* Top Left Controls - Extreme top-left like Grok */
+    /* Top Left Controls - Extreme top-left clean and modern */
     .element-container:has(.top-left-controls) {
         position: fixed !important;
         top: 1rem !important;
@@ -107,22 +107,22 @@ st.markdown("""
         min-width: fit-content !important;
     }
     
-    /* Logo - Centered at top like Grok */
-    .grok-logo {
+    /* Logo - Centered at top clean and modern */
+    .app-logo {
         text-align: center;
         margin-bottom: 3rem;
     }
     
-    .grok-logo h1 {
-        color: var(--grok-text);
+    .app-logo h1 {
+        color: var(--text);
         margin: 0;
         font-size: 2.5rem;
         font-weight: 600;
         letter-spacing: -0.02em;
     }
     
-    .grok-logo-badge {
-        color: var(--grok-text-secondary);
+    .app-logo-badge {
+        color: var(--text-secondary);
         font-size: 0.75rem;
         font-weight: 500;
         text-transform: uppercase;
@@ -130,20 +130,39 @@ st.markdown("""
         margin-top: 0.5rem;
     }
     
-    /* Search Bar Container - Exactly like Grok */
+    /* Header for login page */
+    .app-header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    
+    .app-header h1 {
+        color: var(--text);
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 600;
+    }
+    
+    .app-header p {
+        color: var(--text-secondary);
+        margin: 0.75rem 0 0 0;
+        font-size: 0.95rem;
+    }
+    
+    /* Search Bar Container - Exactly clean and modern */
     .search-container {
         margin: 0 auto 2rem;
         max-width: 700px;
     }
     
-    /* Main Search Input - Grok style with high curve */
+    /* Main Search Input - modern style with high curve */
     .stChatInput {
         margin-bottom: 1rem;
     }
     
     .stChatInput > div {
-        background: var(--grok-surface);
-        border: 1px solid var(--grok-border);
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 30px !important;
         padding: 0.25rem 0.5rem;
     }
@@ -151,17 +170,17 @@ st.markdown("""
     .stChatInput textarea {
         background: transparent !important;
         border: none !important;
-        color: var(--grok-text) !important;
+        color: var(--text) !important;
         padding: 1rem 1.5rem !important;
         font-size: 1rem !important;
         min-height: 50px !important;
     }
     
     .stChatInput textarea::placeholder {
-        color: var(--grok-text-secondary) !important;
+        color: var(--text-secondary) !important;
     }
     
-    /* Action Buttons Below Search - Like Grok's DeepSearch, Pick Personas, Voice */
+    /* Action Buttons Below Search - Like modern DeepSearch, Pick Personas, Voice */
     .search-actions {
         display: flex;
         justify-content: center;
@@ -170,9 +189,9 @@ st.markdown("""
     }
     
     .search-action-btn {
-        background: var(--grok-surface);
-        border: 1px solid var(--grok-border);
-        color: var(--grok-text-secondary);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
         padding: 0.625rem 1.25rem;
         border-radius: 20px;
         font-size: 0.875rem;
@@ -185,16 +204,16 @@ st.markdown("""
     }
     
     .search-action-btn:hover {
-        background: var(--grok-surface-hover);
-        color: var(--grok-text);
+        background: var(--surface-hover);
+        color: var(--text);
         border-color: #404040;
     }
     
     /* Chat Messages - Monotone */
     .user-message {
-        background: var(--grok-surface);
-        border: 1px solid var(--grok-border);
-        color: var(--grok-text);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
         padding: 1rem 1.5rem;
         border-radius: 20px;
         margin: 1.5rem auto;
@@ -205,9 +224,9 @@ st.markdown("""
     }
     
     .assistant-message {
-        background: var(--grok-surface);
-        border: 1px solid var(--grok-border);
-        color: var(--grok-text);
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
         padding: 1.5rem 2rem;
         border-radius: 20px;
         margin: 1.5rem auto;
@@ -218,8 +237,8 @@ st.markdown("""
     
     /* BOM Card - Monotone */
     .bom-card {
-        background: var(--grok-surface);
-        border: 1px solid var(--grok-border);
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 20px;
         padding: 2rem;
         margin: 2rem auto;
@@ -232,19 +251,19 @@ st.markdown("""
         justify-content: space-between;
         margin-bottom: 1.5rem;
         padding-bottom: 1.5rem;
-        border-bottom: 1px solid var(--grok-border);
+        border-bottom: 1px solid var(--border);
     }
     
     .bom-title {
         font-size: 1.25rem;
         font-weight: 600;
-        color: var(--grok-text);
+        color: var(--text);
         letter-spacing: -0.01em;
     }
     
     .status-badge {
-        background: var(--grok-accent);
-        color: var(--grok-text);
+        background: var(--accent);
+        color: var(--text);
         padding: 0.5rem 1rem;
         border-radius: 20px;
         font-size: 0.75rem;
@@ -256,7 +275,7 @@ st.markdown("""
     /* Component Items - Monotone */
     .component-item {
         background: transparent;
-        border: 1px solid var(--grok-border);
+        border: 1px solid var(--border);
         padding: 1rem 1.5rem;
         border-radius: 12px;
         margin: 0.75rem 0;
@@ -264,22 +283,22 @@ st.markdown("""
     }
     
     .component-item:hover {
-        background: var(--grok-surface-hover);
+        background: var(--surface-hover);
         border-color: #404040;
     }
     
     .component-number {
         font-family: 'Courier New', monospace;
-        color: var(--grok-text);
+        color: var(--text);
         font-weight: 500;
         font-size: 0.95rem;
     }
     
-    /* Buttons - Monotone Grok style */
+    /* Buttons - Monotone modern style */
     .stButton > button {
-        background: var(--grok-surface);
-        color: var(--grok-text);
-        border: 1px solid var(--grok-border);
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
         border-radius: 20px;
         padding: 0.75rem 1.5rem;
         font-weight: 500;
@@ -288,27 +307,27 @@ st.markdown("""
     }
     
     .stButton > button:hover {
-        background: var(--grok-surface-hover);
+        background: var(--surface-hover);
         border-color: #404040;
         transform: translateY(-1px);
     }
     
     /* Download Button */
     .stDownloadButton > button {
-        background: var(--grok-surface);
-        color: var(--grok-text);
-        border: 1px solid var(--grok-border);
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
         border-radius: 20px;
         padding: 0.75rem 1.5rem;
         font-weight: 500;
     }
     
     .stDownloadButton > button:hover {
-        background: var(--grok-surface-hover);
+        background: var(--surface-hover);
         border-color: #404040;
     }
     
-    /* File Uploader - Monotone and compact */
+    /* File Uploader - Make it look like a button */
     .stFileUploader {
         background: transparent !important;
         border: none !important;
@@ -316,21 +335,59 @@ st.markdown("""
     }
     
     .stFileUploader > div {
-        background: var(--grok-surface) !important;
-        border: 1px solid var(--grok-border) !important;
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
         border-radius: 20px !important;
+        padding: 0 !important;
+        min-height: auto !important;
+    }
+    
+    .stFileUploader section {
+        border: none !important;
         padding: 0.625rem 1.25rem !important;
+        background: transparent !important;
+    }
+    
+    .stFileUploader section > div {
+        display: none !important;
+    }
+    
+    .stFileUploader section::before {
+        content: "📁 Browse Files";
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        font-weight: 500;
+        display: block;
+    }
+    
+    .stFileUploader button {
+        display: none !important;
     }
     
     .stFileUploader label {
-        color: var(--grok-text-secondary) !important;
-        font-size: 0.875rem !important;
-        font-weight: 500 !important;
+        display: none !important;
+    }
+    
+    .stFileUploader [data-testid="stFileUploaderDropzone"] {
+        min-height: auto !important;
+        padding: 0 !important;
+        border: none !important;
+        background: transparent !important;
+    }
+    
+    .stFileUploader [data-testid="stFileUploaderDropzoneInput"] {
+        cursor: pointer !important;
     }
     
     .stFileUploader:hover > div {
         border-color: #404040 !important;
-        background: var(--grok-surface-hover) !important;
+        background: var(--surface-hover) !important;
+    }
+    
+    /* When file is uploaded, show file name */
+    .stFileUploader:has(.uploadedFile) section::before {
+        content: "📄 " attr(data-testid);
+        color: var(--text);
     }
     
     /* Make all column buttons compact */
@@ -344,19 +401,19 @@ st.markdown("""
     /* Metrics - Monotone */
     .stMetric {
         background: transparent;
-        border: 1px solid var(--grok-border);
+        border: 1px solid var(--border);
         border-radius: 12px;
         padding: 1rem;
     }
     
     .stMetric label {
-        color: var(--grok-text-secondary) !important;
+        color: var(--text-secondary) !important;
         font-size: 0.8rem !important;
         font-weight: 500 !important;
     }
     
     .stMetric [data-testid="stMetricValue"] {
-        color: var(--grok-text) !important;
+        color: var(--text) !important;
         font-size: 1.5rem !important;
         font-weight: 600 !important;
     }
@@ -364,23 +421,23 @@ st.markdown("""
     /* Expander - Monotone */
     .streamlit-expanderHeader {
         background: transparent;
-        border: 1px solid var(--grok-border);
+        border: 1px solid var(--border);
         border-radius: 12px;
-        color: var(--grok-text) !important;
+        color: var(--text) !important;
         font-weight: 500;
     }
     
     .streamlit-expanderHeader:hover {
-        background: var(--grok-surface-hover);
+        background: var(--surface-hover);
         border-color: #404040;
     }
     
     /* Info/Success/Warning Boxes - Monotone */
     .stAlert {
-        background: var(--grok-surface);
-        border: 1px solid var(--grok-border);
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 12px;
-        color: var(--grok-text);
+        color: var(--text);
     }
     
     /* Scrollbar - Minimal */
@@ -394,7 +451,7 @@ st.markdown("""
     }
     
     ::-webkit-scrollbar-thumb {
-        background: var(--grok-border);
+        background: var(--border);
         border-radius: 4px;
     }
     
@@ -404,9 +461,9 @@ st.markdown("""
     
     /* Code Blocks - Monotone */
     code {
-        background: var(--grok-surface) !important;
-        border: 1px solid var(--grok-border) !important;
-        color: var(--grok-text) !important;
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        color: var(--text) !important;
         padding: 0.25rem 0.5rem !important;
         border-radius: 6px !important;
         font-family: 'Courier New', monospace !important;
@@ -414,15 +471,15 @@ st.markdown("""
     
     /* Dividers */
     hr {
-        border-color: var(--grok-border);
+        border-color: var(--border);
         margin: 2rem 0;
         opacity: 0.5;
     }
     
-    /* Footer - Minimal like Grok */
+    /* Footer - Minimal clean and modern */
     .footer-text {
         text-align: center;
-        color: var(--grok-text-secondary);
+        color: var(--text-secondary);
         font-size: 0.75rem;
         margin-top: 4rem;
         padding: 2rem 0;
@@ -469,7 +526,7 @@ def check_password():
         return True
     
     st.markdown("""
-    <div class="grok-header">
+    <div class="app-header">
         <h1>SAI Module 1 BOM Generator</h1>
         <p>Sign in to access the automated BOM generation system</p>
     </div>
@@ -856,11 +913,11 @@ def display_bom_card(bom_data, unique_id=None):
             key=download_key
         )
 
-# Top Left Controls - Fixed position like Grok
+# Top Left Controls - Fixed position clean and modern
 st.markdown('<div class="top-left-controls"></div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns([0.7, 0.7, 0.8])
 with col1:
-    if st.button("🙋🏽‍♂️", key="signout_top", help="Sign out"):
+    if st.button("👤", key="signout_top", help="Sign out"):
         st.session_state.authenticated = False
         st.session_state.current_user = None
         st.rerun()
@@ -874,27 +931,29 @@ with col3:
 
 st.markdown("<div style='height: 5rem;'></div>", unsafe_allow_html=True)
 
-# Centered Logo - Grok style
+# Centered Logo
 st.markdown("""
-<div class="grok-logo">
+<div class="app-logo">
     <h1>SAI Module 1</h1>
-    <div class="grok-logo-badge">BOM Generator</div>
+    <div class="app-logo-badge">BOM Generator</div>
 </div>
 """, unsafe_allow_html=True)
 
 # Chat input - main search bar
 user_input = st.chat_input("What do you want to know?")
 
-# Action buttons directly below search - integrated like Grok's DeepSearch/Voice buttons
-col1, col2, col3, col4 = st.columns([1, 1, 1, 4])
+# Action buttons directly below search
+st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+
+col1, col2, col3, col_space = st.columns([1.2, 1.2, 1, 5])
 
 with col1:
     if MODULE1_AVAILABLE and PDF_AVAILABLE:
         uploaded_pdf = st.file_uploader(
-            "📁 Browse Files",
+            "",
             type=['pdf'],
             key="pdf_uploader",
-            label_visibility="visible"
+            label_visibility="collapsed"
         )
         
 with col2:
@@ -910,11 +969,10 @@ with col2:
             st.session_state.messages.append({"role": "assistant", "content": assembly_list, "type": "text"})
             st.rerun()
 
-with col3:
-    # Generate BOM button appears when file is uploaded
-    if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
+# Show generate button only when file is uploaded
+if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
+    with col3:
         if st.button("🔧 Generate", key="gen_bom"):
-            # Trigger PDF processing
             st.session_state.trigger_pdf_process = True
             st.session_state.current_pdf = uploaded_pdf
             st.rerun()
@@ -1086,6 +1144,6 @@ for message in st.session_state.messages:
 # Footer
 st.markdown("""
 <div class="footer-text">
-    SAI Advanced Power Solutions • Module 1 BOM Generator v1.2
+    SAI Advanced Power Solutions • Module 1 BOM Generator v8.2
 </div>
 """, unsafe_allow_html=True)

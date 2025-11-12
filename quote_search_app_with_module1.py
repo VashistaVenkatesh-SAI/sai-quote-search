@@ -304,7 +304,7 @@ def extract_specs_from_text(text):
     examples_text, examples_dict = load_training_examples()
     
     if not examples_text:
-        st.warning("⚠️ Training examples not found - using fallback")
+        st.warning("⚠️ Reference data not available - using fallback")
         examples_text = """10 assemblies available:
 123456-0100-101: 90H x 40W x 60D, Emax 6.2
 123456-0100-102: 90H x 40W x 60D, (3) Emax 2.2
@@ -317,63 +317,61 @@ def extract_specs_from_text(text):
 123456-0100-302: 90H x 42W x 48D, Tmax
 123456-0100-401: 78H x 42W x 33D, Square D"""
     else:
-        st.success("✅ Loaded training examples from Excel")
+        st.success("✅ Loaded assembly reference data")
 
-    system_prompt = f"""You match switchgear quotes to Module 1 assemblies using training examples.
+    system_prompt = f"""You are an expert at identifying Module 1 switchgear assemblies from quotes.
 
+ASSEMBLY REFERENCE DATA:
 {examples_text}
 
 YOUR TASK:
-1. Read the customer quote carefully
-2. Compare it to ALL the training examples above
-3. Find which example most closely matches
-4. Extract the specifications
-5. EXPLAIN which assembly and example you matched to and WHY
+1. Read the quote and identify ALL sections
+2. For EACH section, extract specifications and match to an assembly
+3. Explain your reasoning naturally without mentioning "training" or "examples"
 
-IMPORTANT: When you find a match, provide detailed reasoning:
+For each section, explain like this:
+"Section [X] matches Assembly [NUMBER]:
 
-"This quote matches Assembly [NUMBER] based on Example [X]:
+Quote specifications:
+- Dimensions: [what you found]
+- Breaker: [what you found]
+- Mount: [what you found]
+- Access: [what you found]
 
-Training Example [X] shows: '[exact example text]'
+This matches Assembly [NUMBER] because these specifications align with the [NUMBER] configuration which has [describe the assembly specs]."
 
-Your quote contains:
-- Dimensions: [what you found] → [matches/doesn't match]
-- Breaker type: [what you found] → [matches/doesn't match]  
-- Breaker quantity: [what you found] → [matches/doesn't match]
-- Mount type: [what you found] → [matches/doesn't match]
-- Access type: [what you found] → [matches/doesn't match]
+CRITICAL: Extract ALL sections from the quote. Most quotes have multiple sections (Section 101, 102, 103, etc.)
 
-Match reasoning:
-[Explain in detail why this example matches the quote]
-
-Therefore, this is Assembly [NUMBER]."
-
-Return JSON:
+Return JSON with ALL sections:
 {{
   "sections": [
     {{
       "identifier": "Section 101",
       "dimensions": {{"height": "90", "width": "40", "depth": "60"}},
-      "main_circuit_breaker": {{"type": "ABB SACE Emax 6.2", "quantity": 1}}
+      "main_circuit_breaker": {{"type": "ABB SACE Emax 6.2", "quantity": 1}},
+      "special_requirements": ["fixed mount", "front and rear access"],
+      "matched_assembly": "123456-0100-101",
+      "reasoning": "Section 101 has 90H x 40W x 60D dimensions with an Emax 6.2 breaker. This matches Assembly 123456-0100-101 which is designed for these exact specifications with fixed mount and front/rear access."
+    }},
+    {{
+      "identifier": "Section 102",
+      "dimensions": {{"height": "90", "width": "42", "depth": "48"}},
+      "main_circuit_breaker": {{"type": "ABB SACE Tmax", "quantity": "multiple"}},
+      "special_requirements": ["fixed mount", "front and rear access"],
+      "matched_assembly": "123456-0100-302",
+      "reasoning": "Section 102 specifications align with Assembly 123456-0100-302..."
     }}
-  ],
-  "special_construction_requirements": ["fixed mount", "front and rear access"],
-  "matched_assembly": "123456-0100-101",
-  "matched_example_number": "1",
-  "matched_example_text": "[the exact example text that matched]",
-  "reasoning": "[Your detailed explanation of why this example matches, referencing the training examples]"
+  ]
 }}
 
-CRITICAL: Always include matched_assembly, matched_example_number, matched_example_text, and detailed reasoning."""
+Extract EVERY section mentioned in the quote."""
 
-    user_prompt = f"""Compare this quote to the training examples and explain which assembly and example it matches.
-
-Be specific about which example number you used and why it matches.
+    user_prompt = f"""Analyze this quote and identify ALL sections. For each section, determine which assembly it matches and explain why.
 
 Quote:
 {text[:15000]}
 
-Return complete JSON with matched example and detailed reasoning."""
+Return complete JSON with all sections and natural explanations."""
     
     try:
         response = openai.ChatCompletion.create(
@@ -383,8 +381,8 @@ Return complete JSON with matched example and detailed reasoning."""
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.0,
-            max_tokens=3000,
-            timeout=30
+            max_tokens=4000,
+            timeout=40
         )
         
         ai_response = response.choices[0].message.content.strip()
@@ -430,10 +428,45 @@ def display_bom_card(bom_data):
             st.metric("Breaker", breaker[:20] if len(breaker) > 20 else breaker)
         
         st.markdown("---")
-        st.markdown("### 🔍 Select an assembly:")
         
         matcher = get_matcher()
-        num_assemblies = min(len(matched_assemblies), 9)
+        
+        # Pre-filter: Calculate match scores and filter out <50%
+        assemblies_with_scores = []
+        for assembly_num in matched_assemblies:
+            specs = matcher.assembly_specs[assembly_num]
+            
+            match_score = 0
+            total_possible = 4
+            
+            if extracted_features.get('height') == specs['height']:
+                match_score += 1
+            if extracted_features.get('width') == specs['width']:
+                match_score += 1
+            if extracted_features.get('depth') == specs['depth']:
+                match_score += 1
+            
+            if extracted_features.get('breaker_type'):
+                breaker_match = extracted_features['breaker_type'].upper() in specs['breaker_type'].upper() or specs['breaker_type'].upper() in extracted_features['breaker_type'].upper()
+                if breaker_match:
+                    match_score += 1
+            
+            match_pct = int((match_score / total_possible) * 100)
+            
+            # Only include if 50% or higher
+            if match_pct >= 50:
+                assemblies_with_scores.append((assembly_num, match_pct, specs))
+        
+        # Sort by match percentage (highest first)
+        assemblies_with_scores.sort(key=lambda x: x[1], reverse=True)
+        
+        if not assemblies_with_scores:
+            st.error("❌ No assemblies match at 50% or higher. Please check specifications.")
+            return
+        
+        st.markdown(f"### 🔍 Select an assembly ({len(assemblies_with_scores)} matches ≥50%):")
+        
+        num_assemblies = min(len(assemblies_with_scores), 9)
         cols_per_row = 3
         
         for i in range(0, num_assemblies, cols_per_row):
@@ -441,33 +474,9 @@ def display_bom_card(bom_data):
             for j in range(cols_per_row):
                 idx = i + j
                 if idx < num_assemblies:
-                    assembly_num = matched_assemblies[idx]
-                    specs = matcher.assembly_specs[assembly_num]
+                    assembly_num, match_pct, specs = assemblies_with_scores[idx]
                     
                     with cols[j]:
-                        # Calculate match score
-                        match_score = 0
-                        total_possible = 4
-                        
-                        height_match = extracted_features.get('height') == specs['height']
-                        width_match = extracted_features.get('width') == specs['width']
-                        depth_match = extracted_features.get('depth') == specs['depth']
-                        breaker_match = False
-                        
-                        if extracted_features.get('breaker_type'):
-                            breaker_match = extracted_features['breaker_type'].upper() in specs['breaker_type'].upper() or specs['breaker_type'].upper() in extracted_features['breaker_type'].upper()
-                        
-                        if height_match:
-                            match_score += 1
-                        if width_match:
-                            match_score += 1
-                        if depth_match:
-                            match_score += 1
-                        if breaker_match:
-                            match_score += 1
-                        
-                        match_pct = int((match_score / total_possible) * 100)
-                        
                         # Button
                         if st.button(f"**{assembly_num}**\n{match_pct}% Match", key=f"select_{assembly_num}_{idx}", use_container_width=True):
                             selected_bom = matcher.generate_bom(assembly_num)
@@ -491,6 +500,13 @@ def display_bom_card(bom_data):
                             st.rerun()
                         
                         # Match details
+                        height_match = extracted_features.get('height') == specs['height']
+                        width_match = extracted_features.get('width') == specs['width']
+                        depth_match = extracted_features.get('depth') == specs['depth']
+                        breaker_match = False
+                        if extracted_features.get('breaker_type'):
+                            breaker_match = extracted_features['breaker_type'].upper() in specs['breaker_type'].upper() or specs['breaker_type'].upper() in extracted_features['breaker_type'].upper()
+                        
                         st.caption("**Match Details:**")
                         st.caption(f"{'✅' if height_match else '❌'} Height: {specs['height']}\"")
                         st.caption(f"{'✅' if width_match else '❌'} Width: {specs['width']}\"")
@@ -577,11 +593,11 @@ def display_bom_card(bom_data):
         )
 
 # Header
-module1_badge = '<span class="module1-badge">Excel Examples</span>' if MODULE1_AVAILABLE else ''
+module1_badge = '<span class="module1-badge">AI Powered</span>' if MODULE1_AVAILABLE else ''
 st.markdown(f"""
 <div class="main-header">
     <h1>SAI Module 1 {module1_badge}</h1>
-    <p>Upload quote PDFs for instant BOM generation using AI training examples</p>
+    <p>Upload quote PDFs for instant multi-section BOM generation</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -615,8 +631,24 @@ for message in st.session_state.messages:
     else:
         st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
         
+        # Handle single BOM
         if message.get("type") == "module1" and "module1_result" in message:
             display_bom_card(message["module1_result"])
+        
+        # Handle multiple BOMs (multi-section quotes)
+        elif message.get("type") == "multi_bom" and "all_boms" in message:
+            for bom_data in message["all_boms"]:
+                st.markdown(f"### 📦 {bom_data['section_id']}")
+                
+                # Create module1_result format for display
+                module1_result = {
+                    'status': 'exact_match',
+                    'bom': bom_data['bom'],
+                    'message': f"✅ {bom_data['section_id']}: Assembly {bom_data['assembly']}"
+                }
+                
+                display_bom_card(module1_result)
+                st.markdown("---")
 
 # Sidebar
 with st.sidebar:
@@ -632,12 +664,12 @@ with st.sidebar:
     # PDF Upload
     if MODULE1_AVAILABLE and PDF_AVAILABLE:
         st.markdown("### 📤 Upload Quote PDF")
-        st.caption("AI will match to training examples")
+        st.caption("AI analyzes all sections automatically")
         
         uploaded_pdf = st.file_uploader(
             "Drop quote PDF here",
             type=['pdf'],
-            help="Upload quote to auto-generate BOM",
+            help="Upload quote to auto-generate BOMs for all sections",
             key="pdf_uploader"
         )
         
@@ -647,50 +679,68 @@ with st.sidebar:
                     text = extract_text_from_pdf(uploaded_pdf)
                     
                     if text:
-                        with st.spinner("🤖 Analyzing with training examples..."):
+                        with st.spinner("🤖 Analyzing all sections..."):
                             specs_json = extract_specs_from_text(text)
                             
-                            if specs_json:
-                                # Show AI reasoning with matched example
-                                if 'reasoning' in specs_json:
-                                    st.info(f"**🎯 AI Match Analysis:**\n\n{specs_json['reasoning']}")
+                            if specs_json and 'sections' in specs_json:
+                                num_sections = len(specs_json['sections'])
+                                st.success(f"✅ Found {num_sections} section(s) in quote")
                                 
-                                if 'matched_example_text' in specs_json:
-                                    st.success(f"**📋 Training Example Used:**\n\n\"{specs_json['matched_example_text']}\"")
+                                # Process EACH section
+                                all_boms = []
                                 
-                                with st.spinner("🔍 Generating BOM..."):
-                                    module1_result = match_quote_to_assembly(specs_json)
+                                for section in specs_json['sections']:
+                                    section_id = section.get('identifier', 'Unknown')
+                                    matched_assembly = section.get('matched_assembly', None)
+                                    reasoning = section.get('reasoning', '')
                                     
-                                    features = module1_result.get('extracted_features', {})
-                                    feature_text = f"Detected: {features.get('height', '?')}\"H x {features.get('width', '?')}\"W x {features.get('depth', '?')}\"D"
-                                    if features.get('breaker_type'):
-                                        feature_text += f", {features['breaker_type']}"
-                                    
-                                    # Add AI reasoning to message
-                                    ai_reasoning = specs_json.get('reasoning', '')
-                                    matched_example = specs_json.get('matched_example_text', '')
-                                    
-                                    full_message = module1_result['message']
-                                    if ai_reasoning and matched_example:
-                                        full_message = f"**Matched Training Example:**\n\"{matched_example}\"\n\n**AI Analysis:**\n{ai_reasoning}\n\n{full_message}"
-                                    elif ai_reasoning:
-                                        full_message = f"{ai_reasoning}\n\n{full_message}"
+                                    if matched_assembly:
+                                        # Generate BOM for this section
+                                        try:
+                                            matcher = get_matcher()
+                                            section_bom = matcher.generate_bom(matched_assembly)
+                                            
+                                            all_boms.append({
+                                                'section_id': section_id,
+                                                'assembly': matched_assembly,
+                                                'bom': section_bom,
+                                                'reasoning': reasoning
+                                            })
+                                            
+                                        except Exception as e:
+                                            st.warning(f"⚠️ Could not generate BOM for {section_id}: {e}")
+                                
+                                if all_boms:
+                                    # Create summary message
+                                    summary = f"📄 {uploaded_pdf.name}\n\nFound {len(all_boms)} sections:\n"
+                                    for bom_data in all_boms:
+                                        summary += f"• {bom_data['section_id']}: Assembly {bom_data['assembly']}\n"
                                     
                                     st.session_state.messages.append({
                                         "role": "user",
-                                        "content": f"📄 {uploaded_pdf.name}\n{feature_text}"
+                                        "content": summary
                                     })
+                                    
+                                    # Add assistant message with ALL BOMs
+                                    full_message = f"✅ Generated BOMs for {len(all_boms)} sections\n\n"
+                                    
+                                    for bom_data in all_boms:
+                                        full_message += f"**{bom_data['section_id']}** → Assembly {bom_data['assembly']}\n"
+                                        if bom_data['reasoning']:
+                                            full_message += f"{bom_data['reasoning']}\n\n"
                                     
                                     st.session_state.messages.append({
                                         "role": "assistant",
                                         "content": full_message,
-                                        "module1_result": module1_result,
-                                        "type": "module1"
+                                        "all_boms": all_boms,  # Store ALL BOMs
+                                        "type": "multi_bom"
                                     })
                                     
                                     st.rerun()
+                                else:
+                                    st.error("❌ Could not match any sections to assemblies")
                             else:
-                                st.error("❌ Could not extract specs")
+                                st.error("❌ Could not extract sections from quote")
                     else:
                         st.error("❌ Could not read PDF")
         
@@ -735,4 +785,4 @@ with st.sidebar:
     
     st.markdown("---")
     st.caption("SAI Advanced Power Solutions")
-    st.caption("Module 1 BOM Generator v4.0")
+    st.caption("Module 1 BOM Generator v5.0")

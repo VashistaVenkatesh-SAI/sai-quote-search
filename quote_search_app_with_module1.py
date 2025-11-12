@@ -151,8 +151,8 @@ st.markdown("""
     
     /* Search Bar Container - Exactly clean and modern */
     .search-container {
-        margin: 0 auto 2rem;
-        max-width: 700px;
+        margin: 0 auto 1rem;
+        max-width: 500px;
     }
     
     /* Main Search Input - modern style with high curve */

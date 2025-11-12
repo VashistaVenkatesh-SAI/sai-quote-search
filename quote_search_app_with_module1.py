@@ -1153,9 +1153,9 @@ if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
 
 # Chat input - main search bar
 user_input = st.chat_input("What do you want to know?")
-            for asm_num in sorted(matcher.assembly_specs.keys()):
-                specs = matcher.assembly_specs[asm_num]
-                assembly_list += f"**{asm_num}**: {specs['height']}\"H × {specs['width']}\"W × {specs['depth']}\"D - {specs['breaker_type']}\n\n"
+        for asm_num in sorted(matcher.assembly_specs.keys()):
+            specs = matcher.assembly_specs[asm_num]
+            assembly_list += f"**{asm_num}**: {specs['height']}\"H × {specs['width']}\"W × {specs['depth']}\"D - {specs['breaker_type']}\n\n"
             
             st.session_state.messages.append({"role": "user", "content": "List all assemblies"})
             st.session_state.messages.append({"role": "assistant", "content": assembly_list, "type": "text"})

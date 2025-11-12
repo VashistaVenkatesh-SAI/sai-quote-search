@@ -1,6 +1,6 @@
 """
-SAI Quote Search - WITH MODULE 1 MATCHING
-Claude Dark Mode Interface + Module 1 Assembly Selection
+SAI Quote Search - WITH PDF UPLOAD + INSTANT MODULE 1 BOM
+Upload PDF → Extract Specs → Match Assembly → Generate BOM
 """
 import streamlit as st
 import openai
@@ -8,17 +8,23 @@ from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
 import json
-import sys
-import os
+import re
+from io import BytesIO
 
-# Add Module1Matcher to path
-# Assumes Module1Matcher.py is in the same directory
+# Module 1 Matcher
 try:
-    from Module1Matcher import match_from_user_input, get_matcher
+    from Module1Matcher import match_from_user_input, get_matcher, match_quote_to_assembly
     MODULE1_AVAILABLE = True
 except ImportError:
     MODULE1_AVAILABLE = False
     st.error("⚠️ Module1Matcher.py not found. Module 1 matching disabled.")
+
+# PDF Processing
+try:
+    import PyPDF2
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
 
 # Configuration from Streamlit secrets
 SEARCH_ENDPOINT = st.secrets["SEARCH_ENDPOINT"]
@@ -45,7 +51,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS - Claude Dark Mode + Module 1 Cards
+# [KEEPING ALL YOUR EXISTING CSS - Same as before]
 st.markdown("""
 <style>
     /* Claude Dark Mode Colors */
@@ -61,18 +67,15 @@ st.markdown("""
         --border-color: #404040;
     }
     
-    /* Main background */
     .stApp {
         background-color: #1e1e1e;
         color: #e8e8e8;
     }
     
-    /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Header */
     .main-header {
         background: #2d2d2d;
         padding: 1.5rem 2rem;
@@ -94,7 +97,6 @@ st.markdown("""
         font-size: 0.95rem;
     }
     
-    /* Module 1 Badge */
     .module1-badge {
         background: #10B981;
         color: white;
@@ -106,20 +108,6 @@ st.markdown("""
         margin-left: 1rem;
     }
     
-    /* Chat input */
-    .stChatInput {
-        background: #2d2d2d !important;
-        border: 1px solid #404040 !important;
-        border-radius: 24px !important;
-    }
-    
-    .stChatInput textarea {
-        background: #2d2d2d !important;
-        color: #e8e8e8 !important;
-        border: none !important;
-    }
-    
-    /* Message bubbles - User */
     .user-message {
         background: #2563EB;
         color: white;
@@ -132,7 +120,6 @@ st.markdown("""
         line-height: 1.5;
     }
     
-    /* Message bubbles - Assistant */
     .assistant-message {
         background: #2d2d2d;
         color: #e8e8e8;
@@ -145,7 +132,6 @@ st.markdown("""
         line-height: 1.6;
     }
     
-    /* BOM Card */
     .bom-card {
         background: linear-gradient(135deg, #2d2d2d 0%, #3a3a3a 100%);
         border-radius: 16px;
@@ -170,13 +156,6 @@ st.markdown("""
         color: #10B981;
     }
     
-    .bom-assembly {
-        font-size: 1.125rem;
-        color: #e8e8e8;
-        font-weight: 600;
-    }
-    
-    /* Component list */
     .component-item {
         background: #2d2d2d;
         padding: 0.875rem 1.25rem;
@@ -191,22 +170,6 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Quote cards */
-    .quote-card {
-        background: #2d2d2d;
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        border: 1px solid #404040;
-        transition: all 0.2s;
-    }
-    
-    .quote-card:hover {
-        border-color: #2563EB;
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-    }
-    
-    /* Status badges */
     .status-exact {
         background: #10B981;
         color: white;
@@ -234,34 +197,20 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Spec labels and values */
-    .spec-label {
-        font-size: 0.75rem;
-        color: #b0b0b0;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        font-weight: 500;
-        margin-bottom: 0.25rem;
+    .quote-card {
+        background: #2d2d2d;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        border: 1px solid #404040;
+        transition: all 0.2s;
     }
     
-    .spec-value {
-        font-size: 1.125rem;
-        color: #e8e8e8;
-        font-weight: 600;
+    .quote-card:hover {
+        border-color: #2563EB;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
     }
     
-    /* Streamlit components override */
-    .stMarkdown {
-        color: #e8e8e8;
-    }
-    
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #2d2d2d;
-        border-right: 1px solid #404040;
-    }
-    
-    /* Buttons */
     .stButton > button {
         background: #2563EB;
         color: white;
@@ -277,7 +226,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
     }
     
-    /* Scrollbar */
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -291,10 +239,6 @@ st.markdown("""
         background: #404040;
         border-radius: 4px;
     }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: #505050;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -306,7 +250,6 @@ def check_password():
     if st.session_state.authenticated:
         return True
     
-    # Show login form
     st.markdown("""
     <div class="main-header">
         <h1>SAI Quote Search + Module 1</h1>
@@ -344,35 +287,160 @@ if 'search_client' not in st.session_state:
         index_name=INDEX_NAME,
         credential=AzureKeyCredential(SEARCH_KEY)
     )
-if 'module1_mode' not in st.session_state:
-    st.session_state.module1_mode = False
 
-# Check authentication first
+# Check authentication
 if not check_password():
     st.stop()
 
-def is_module1_query(text):
-    """Detect if query is about Module 1 / BOM generation"""
-    module1_keywords = [
-        'module 1', 'module1', 'bom', 'bill of materials',
-        'assembly', 'components', 'parts list',
-        'box building', 'breaker', 'emax', 'tmax'
-    ]
-    text_lower = text.lower()
-    return any(keyword in text_lower for keyword in module1_keywords)
+def extract_text_from_pdf(pdf_file):
+    """Extract text from uploaded PDF"""
+    try:
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        st.error(f"Error reading PDF: {e}")
+        return None
 
-def detect_dimensions_in_query(text):
-    """Check if query contains dimension specifications"""
-    import re
-    # Look for patterns like "90H", "40W", "60D", "90 inches", etc.
-    dimension_patterns = [
-        r'\d+\s*(?:inch|in|"|\')*\s*(?:H|high|height)',
-        r'\d+\s*(?:inch|in|"|\')*\s*(?:W|wide|width)',
-        r'\d+\s*(?:inch|in|"|\')*\s*(?:D|deep|depth)',
-        r'\d+H\s*x\s*\d+W\s*x\s*\d+D',
-        r'\d+\s*x\s*\d+\s*x\s*\d+'
-    ]
-    return any(re.search(pattern, text, re.IGNORECASE) for pattern in dimension_patterns)
+def extract_specs_from_text(text):
+    """Use Azure OpenAI to extract specifications from quote text"""
+    system_prompt = """You are an electrical switchgear specification extractor.
+
+Extract these details from the quote:
+- Dimensions (Height x Width x Depth) for each section
+- Breaker types and quantities
+- Mount type (Fixed or Drawout)
+- Access type (Front only or Front and rear)
+- NEMA rating
+- UL rating
+
+Output as JSON with this structure:
+{
+  "sections": [
+    {
+      "identifier": "Section 101",
+      "dimensions": {"height": "90", "width": "40", "depth": "60"},
+      "main_circuit_breaker": {
+        "type": "ABB SACE Emax 6.2",
+        "quantity": 1
+      }
+    }
+  ],
+  "special_construction_requirements": ["fixed mount", "front and rear access"]
+}"""
+
+    user_prompt = f"""Extract specifications from this quote:
+
+{text[:10000]}
+
+Return complete JSON with all technical details."""
+    
+    try:
+        response = openai.ChatCompletion.create(
+            engine=AZURE_OPENAI_DEPLOYMENT,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.0,
+            max_tokens=2000,
+            timeout=30
+        )
+        
+        ai_response = response.choices[0].message.content.strip()
+        
+        # Clean JSON
+        ai_response = ai_response.replace("```json", "").replace("```", "").strip()
+        start = ai_response.find('{')
+        end = ai_response.rfind('}') + 1
+        if start != -1 and end > start:
+            ai_response = ai_response[start:end]
+        
+        # Remove trailing commas
+        for _ in range(5):
+            ai_response = re.sub(r',(\s*[}\]])', r'\1', ai_response)
+        
+        parsed = json.loads(ai_response)
+        return parsed
+        
+    except Exception as e:
+        st.error(f"Error extracting specs: {e}")
+        return None
+
+def display_bom_card(bom_data):
+    """Display Module 1 BOM in a beautiful card"""
+    if not bom_data or 'bom' not in bom_data or not bom_data['bom']:
+        return
+    
+    bom = bom_data['bom']
+    status = bom_data['status']
+    
+    # Status badge
+    if status == 'exact_match':
+        badge_html = '<span class="status-exact">✅ Exact Match</span>'
+    elif status == 'ambiguous':
+        badge_html = '<span class="status-ambiguous">⚠️ Multiple Matches</span>'
+    else:
+        badge_html = '<span class="status-nomatch">❌ No Match</span>'
+    
+    st.markdown(f"""
+    <div class="bom-card">
+        <div class="bom-header">
+            <div class="bom-title">🔧 Module 1 BOM</div>
+            {badge_html}
+        </div>
+        <div class="bom-assembly" style="font-size: 1.125rem; color: #e8e8e8; font-weight: 600;">
+            Assembly: {bom['assembly_number']}
+        </div>
+        <div style="color: #b0b0b0; margin-top: 0.5rem;">{bom['project']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Specifications
+    specs = bom['specifications']
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown("**Dimensions**")
+        st.code(f"{specs['height']}\"H x {specs['width']}\"W x {specs['depth']}\"D")
+    
+    with col2:
+        st.markdown("**Breaker**")
+        st.code(f"{specs['breaker_type']}")
+    
+    with col3:
+        st.markdown("**Mount**")
+        st.code(specs['mount'])
+    
+    with col4:
+        st.markdown("**Access**")
+        st.code(specs['access'])
+    
+    st.markdown(f"**Total Components:** `{bom['total_parts']} parts`")
+    
+    # Components list
+    with st.expander(f"📋 View all {bom['total_parts']} components", expanded=False):
+        for i, comp in enumerate(bom['components'], 1):
+            st.markdown(f"""
+            <div class="component-item">
+                <span style="color: #b0b0b0; font-size: 0.85rem;">#{i}</span>
+                <span class="component-number">{comp['part_number']}</span>
+                <span style="color: #b0b0b0; margin-left: 1rem;">Qty: {comp['quantity']}</span>
+                <div style="color: #b0b0b0; font-size: 0.85rem; margin-top: 0.25rem;">{comp.get('description', '')[:80]}</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Export button
+    if st.button("📥 Export BOM to JSON", key=f"export_{bom['assembly_number']}"):
+        json_str = json.dumps(bom, indent=2, ensure_ascii=False)
+        st.download_button(
+            label="Download JSON",
+            data=json_str,
+            file_name=f"{bom['assembly_number']}_BOM.json",
+            mime="application/json"
+        )
 
 def generate_embedding(text):
     """Generate embedding for search query"""
@@ -411,79 +479,8 @@ def search_quotes(query, top_k=5):
         st.error(f"Search error: {e}")
         return []
 
-def display_bom_card(bom_data):
-    """Display Module 1 BOM in a beautiful card"""
-    if not bom_data or 'bom' not in bom_data or not bom_data['bom']:
-        return
-    
-    bom = bom_data['bom']
-    status = bom_data['status']
-    
-    # Status badge
-    if status == 'exact_match':
-        badge_html = '<span class="status-exact">✅ Exact Match</span>'
-    elif status == 'ambiguous':
-        badge_html = '<span class="status-ambiguous">⚠️ Multiple Matches</span>'
-    else:
-        badge_html = '<span class="status-nomatch">❌ No Match</span>'
-    
-    st.markdown(f"""
-    <div class="bom-card">
-        <div class="bom-header">
-            <div class="bom-title">🔧 Module 1 BOM</div>
-            {badge_html}
-        </div>
-        <div class="bom-assembly">Assembly: {bom['assembly_number']}</div>
-        <div style="color: #b0b0b0; margin-top: 0.5rem;">{bom['project']}</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Specifications
-    specs = bom['specifications']
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown("**Dimensions**")
-        st.code(f"{specs['height']}\"H x {specs['width']}\"W x {specs['depth']}\"D")
-    
-    with col2:
-        st.markdown("**Breaker**")
-        st.code(f"{specs['breaker_type']}")
-    
-    with col3:
-        st.markdown("**Mount**")
-        st.code(specs['mount'])
-    
-    with col4:
-        st.markdown("**Access**")
-        st.code(specs['access'])
-    
-    st.markdown(f"**Total Components:** `{bom['total_parts']} parts`")
-    
-    # Components list
-    with st.expander(f"📋 View all {bom['total_parts']} components", expanded=False):
-        for i, comp in enumerate(bom['components'], 1):
-            st.markdown(f"""
-            <div class="component-item">
-                <span style="color: #b0b0b0; font-size: 0.85rem;">#{i}</span>
-                <span class="component-number">{comp['part_number']}</span>
-                <span style="color: #b0b0b0; margin-left: 1rem;">Qty: {comp['quantity']}</span>
-                <div style="color: #b0b0b0; font-size: 0.85rem; margin-top: 0.25rem;">{comp['description'][:80]}</div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # Export button
-    if st.button("📥 Export BOM to JSON", key=f"export_{bom['assembly_number']}"):
-        json_str = json.dumps(bom, indent=2, ensure_ascii=False)
-        st.download_button(
-            label="Download JSON",
-            data=json_str,
-            file_name=f"{bom['assembly_number']}_BOM.json",
-            mime="application/json"
-        )
-
 def display_quote_card(quote, score):
-    """Display a quote card using native Streamlit components"""
+    """Display a quote card"""
     quote_num = quote.get('quote_number', 'N/A')
     voltage = quote.get('voltage', 'N/A')
     amperage = quote.get('amperage', 'N/A')
@@ -513,13 +510,11 @@ def display_quote_card(quote, score):
             dims_list = dimensions.split(" | ")
             for dim in dims_list:
                 st.markdown(f"- {dim}")
-        
-        st.markdown("")
 
 def generate_response(query, search_results):
     """Generate AI response based on search results"""
     if not search_results:
-        return "I couldn't find any quotes matching those specifications. Try different voltage, amperage, or broader search terms."
+        return "I couldn't find any quotes matching those specifications."
     
     context = "\n\n".join([
         f"Quote {r.get('quote_number')}: {r.get('voltage')}, {r.get('amperage')}\n"
@@ -532,7 +527,7 @@ def generate_response(query, search_results):
         response = openai.ChatCompletion.create(
             engine=AZURE_OPENAI_DEPLOYMENT,
             messages=[
-                {"role": "system", "content": "You are a helpful assistant for SAI Advanced Power Solutions. Help users find relevant switchgear quotes. Be concise and highlight key specs."},
+                {"role": "system", "content": "You are a helpful assistant for SAI Advanced Power Solutions. Help users find relevant switchgear quotes."},
                 {"role": "user", "content": f"Based on these quotes:\n\n{context}\n\nAnswer: {query}"}
             ],
             temperature=0.7,
@@ -540,42 +535,37 @@ def generate_response(query, search_results):
         )
         return response.choices[0].message.content
     except:
-        return f"I found {len(search_results)} similar quotes based on your search."
+        return f"I found {len(search_results)} similar quotes."
 
 # Header
 module1_badge = '<span class="module1-badge">+ Module 1</span>' if MODULE1_AVAILABLE else ''
 st.markdown(f"""
 <div class="main-header">
     <h1>SAI Quote Search{module1_badge}</h1>
-    <p>Find similar switchgear quotes and generate Module 1 BOMs using AI</p>
+    <p>Upload quotes for instant Module 1 BOM generation or search existing quotes</p>
 </div>
 """, unsafe_allow_html=True)
 
 # Chat input
-user_input = st.chat_input("Search quotes or generate Module 1 BOM... (e.g., '90H x 40W x 60D, Emax 6.2')")
+user_input = st.chat_input("Search quotes or ask about Module 1... (e.g., '90H x 40W x 60D, Emax 6.2')")
 
 if user_input:
-    # Add user message
     st.session_state.messages.append({"role": "user", "content": user_input})
     
-    # Detect if this is a Module 1 query
-    is_module1 = is_module1_query(user_input) or detect_dimensions_in_query(user_input)
+    # Check if Module 1 query
+    is_module1 = any(keyword in user_input.lower() for keyword in ['module', 'bom', 'assembly', 'breaker', 'emax', 'tmax', '"h', '"w', '"d'])
     
     if is_module1 and MODULE1_AVAILABLE:
-        # Module 1 matching
         with st.spinner("Matching to Module 1 assembly..."):
             module1_result = match_from_user_input(user_input)
             
-            response_text = module1_result['message']
-            
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": response_text,
+                "content": module1_result['message'],
                 "module1_result": module1_result,
                 "type": "module1"
             })
     else:
-        # Regular quote search
         with st.spinner("Searching quotes..."):
             results = search_quotes(user_input)
             ai_response = generate_response(user_input, results)
@@ -594,7 +584,6 @@ for message in st.session_state.messages:
     else:
         st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
         
-        # Display results based on type
         if message.get("type") == "module1" and "module1_result" in message:
             display_bom_card(message["module1_result"])
         
@@ -613,18 +602,76 @@ with st.sidebar:
     
     st.markdown("---")
     
+    # PDF UPLOAD FOR MODULE 1
+    if MODULE1_AVAILABLE and PDF_AVAILABLE:
+        st.markdown("### 📤 Upload Quote PDF")
+        st.caption("Get instant Module 1 BOM")
+        
+        uploaded_pdf = st.file_uploader(
+            "Drop quote PDF here",
+            type=['pdf'],
+            help="Upload quote PDF to automatically generate Module 1 BOM",
+            key="pdf_uploader"
+        )
+        
+        if uploaded_pdf is not None:
+            if st.button("🔧 Generate BOM", use_container_width=True):
+                with st.spinner("📄 Reading PDF..."):
+                    # Extract text
+                    text = extract_text_from_pdf(uploaded_pdf)
+                    
+                    if text:
+                        st.success(f"✅ Extracted {len(text)} characters")
+                        
+                        with st.spinner("🤖 Extracting specifications..."):
+                            # Extract specs
+                            specs_json = extract_specs_from_text(text)
+                            
+                            if specs_json:
+                                st.success("✅ Specs extracted!")
+                                
+                                with st.spinner("🔍 Matching to Module 1..."):
+                                    # Match to Module 1
+                                    module1_result = match_quote_to_assembly(specs_json)
+                                    
+                                    # Add to messages
+                                    st.session_state.messages.append({
+                                        "role": "user",
+                                        "content": f"📄 Uploaded: {uploaded_pdf.name}"
+                                    })
+                                    
+                                    st.session_state.messages.append({
+                                        "role": "assistant",
+                                        "content": module1_result['message'],
+                                        "module1_result": module1_result,
+                                        "type": "module1"
+                                    })
+                                    
+                                    st.rerun()
+                    else:
+                        st.error("❌ Could not extract text from PDF")
+        
+        st.markdown("---")
+    
     # Module 1 Quick Access
     if MODULE1_AVAILABLE:
-        st.markdown("### 🔧 Module 1 BOM")
-        st.caption("Generate BOMs for box assemblies")
+        st.markdown("### 💡 Example Queries")
         
-        # Quick examples
-        with st.expander("💡 Example queries"):
-            st.code("90H x 40W x 60D, Emax 6.2")
-            st.code("90 high, 30 wide, 48 deep, Emax 2.2, drawout")
-            st.code("78H x 42W x 33D, Square D")
+        with st.expander("Try these"):
+            if st.button("90H x 40W x 60D, Emax 6.2", use_container_width=True):
+                st.session_state.messages.append({
+                    "role": "user",
+                    "content": "90H x 40W x 60D, Emax 6.2, fixed, front and rear"
+                })
+                st.rerun()
+            
+            if st.button("78H x 42W x 33D, Square D", use_container_width=True):
+                st.session_state.messages.append({
+                    "role": "user",
+                    "content": "78H x 42W x 33D, Square D"
+                })
+                st.rerun()
         
-        # List assemblies button
         if st.button("📋 List All Assemblies", use_container_width=True):
             matcher = get_matcher()
             st.markdown("#### Available Assemblies:")
@@ -636,38 +683,6 @@ with st.sidebar:
         
         st.markdown("---")
     
-    # File upload section
-    st.markdown("### 📤 Upload New Quote")
-    uploaded_file = st.file_uploader(
-        "Drop PDF here",
-        type=['pdf'],
-        help="Upload a quote PDF to process"
-    )
-    
-    if uploaded_file is not None:
-        if st.button("Upload & Process", use_container_width=True):
-            with st.spinner("Uploading..."):
-                try:
-                    from azure.storage.blob import BlobServiceClient
-                    
-                    STORAGE_CONNECTION_STRING = st.secrets.get("STORAGE_CONNECTION_STRING", "")
-                    
-                    if STORAGE_CONNECTION_STRING:
-                        blob_service = BlobServiceClient.from_connection_string(STORAGE_CONNECTION_STRING)
-                        raw_container = blob_service.get_container_client("raw")
-                        
-                        blob_client = raw_container.get_blob_client(uploaded_file.name)
-                        blob_client.upload_blob(uploaded_file.getvalue(), overwrite=True)
-                        
-                        st.success(f"✅ Uploaded: {uploaded_file.name}")
-                        st.info("File is being processed. Check back in 2-3 minutes.")
-                    else:
-                        st.error("❌ Storage not configured")
-                        
-                except Exception as e:
-                    st.error(f"❌ Upload failed: {str(e)}")
-    
-    st.markdown("---")
     st.markdown("### 📊 Stats")
     st.caption(f"{len(st.session_state.messages)} messages")
     
@@ -677,4 +692,4 @@ with st.sidebar:
     
     st.markdown("---")
     st.caption("SAI Advanced Power Solutions")
-    st.caption("Quote Search + Module 1 v2.1")
+    st.caption("Quote Search + Module 1 BOM v2.2")

@@ -1029,29 +1029,6 @@ if hasattr(st.session_state, 'trigger_pdf_process') and st.session_state.trigger
         else:
             st.error("Could not read PDF")
 
-# Handle text input
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    
-    if MODULE1_AVAILABLE:
-        with st.spinner("Matching to Module 1 assembly..."):
-            module1_result = match_from_user_input(user_input)
-            
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": module1_result['message'],
-                "module1_result": module1_result,
-                "type": "module1"
-            })
-    else:
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": "Module 1 matching not available.",
-            "type": "error"
-        })
-    st.rerun()
-
-
 # Display chat history
 for message in st.session_state.messages:
     if message["role"] == "user":

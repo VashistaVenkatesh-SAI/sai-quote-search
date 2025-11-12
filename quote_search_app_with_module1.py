@@ -67,7 +67,7 @@ st.markdown("""
     
     /* Global Styles */
     * {
-        font-family: 'Aptos Mono', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-family: 'Consoloas', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
     
     .stApp {
@@ -96,7 +96,7 @@ st.markdown("""
     .element-container:has(.top-right-controls) {
         position: fixed !important;
         top: 1rem !important;
-        right: 1rem !important;
+        right: 2rem !important;
         z-index: 9999 !important;
         display: flex !important;
         gap: 0.5rem !important;

@@ -554,7 +554,12 @@ Return ONLY valid JSON:"""
 def display_bom_card(module1_result, unique_id=None):
     """Display BOM results in a card format"""
     if module1_result.get('status') == 'exact_match':
-        bom = module1_result['bom']
+        bom = module1_result.get('bom', {})
+        
+        # Safety check - if bom is None or empty
+        if not bom:
+            st.warning("BOM data not available")
+            return
         
         # Match percentage badge
         match_pct = module1_result.get('match_percentage')
@@ -563,58 +568,70 @@ def display_bom_card(module1_result, unique_id=None):
         else:
             badge_html = '<span class="status-badge">Matched</span>'
         
+        # Get values safely with defaults
+        assembly_num = bom.get('assembly_number', 'N/A')
+        height = bom.get('height', '?')
+        width = bom.get('width', '?')
+        depth = bom.get('depth', '?')
+        breaker_type = bom.get('breaker_type', 'N/A')
+        total_parts = bom.get('total_parts', 0)
+        
         st.markdown(f"""
         <div class="bom-card">
             <div class="bom-header">
                 <div class="bom-title">Module 1 BOM</div>
                 {badge_html}
             </div>
-            <div class="bom-assembly">Assembly: {bom['assembly_number']}</div>
-            <div class="bom-specs">{bom['height']}"H × {bom['width']}"W × {bom['depth']}"D</div>
-            <div class="bom-specs">Breaker: {bom['breaker_type']}</div>
-            <div class="bom-specs">Total Parts: {bom['total_parts']}</div>
+            <div class="bom-assembly">Assembly: {assembly_num}</div>
+            <div class="bom-specs">{height}"H × {width}"W × {depth}"D</div>
+            <div class="bom-specs">Breaker: {breaker_type}</div>
+            <div class="bom-specs">Total Parts: {total_parts}</div>
         </div>
         """, unsafe_allow_html=True)
         
         # Expandable component list
         export_key = f"export_{unique_id}" if unique_id else "export_bom"
-        expander_key = f"components_{unique_id}" if unique_id else "components"
         
-        with st.expander(f"View all {bom['total_parts']} components", expanded=False):
-            for category, items in bom['components'].items():
-                if items:
-                    st.markdown(f"**{category}**")
+        components = bom.get('components', {})
+        if components and total_parts > 0:
+            with st.expander(f"View all {total_parts} components", expanded=False):
+                for category, items in components.items():
+                    if items:
+                        st.markdown(f"**{category}**")
+                        for item in items:
+                            part_num = item.get('part_number', 'N/A')
+                            desc = item.get('description', 'N/A')
+                            qty = item.get('quantity', 0)
+                            st.markdown(f"""
+                            <div class="component-item">
+                                <span class="component-number">{part_num}</span> - 
+                                {desc} (Qty: {qty})
+                            </div>
+                            """, unsafe_allow_html=True)
+            
+            # Export button
+            if st.button("Export BOM to CSV", key=export_key):
+                csv_data = []
+                for category, items in components.items():
                     for item in items:
-                        st.markdown(f"""
-                        <div class="component-item">
-                            <span class="component-number">{item['part_number']}</span> - 
-                            {item['description']} (Qty: {item['quantity']})
-                        </div>
-                        """, unsafe_allow_html=True)
-        
-        # Export button
-        if st.button("Export BOM to CSV", key=export_key):
-            csv_data = []
-            for category, items in bom['components'].items():
-                for item in items:
-                    csv_data.append({
-                        'Category': category,
-                        'Part Number': item['part_number'],
-                        'Description': item['description'],
-                        'Quantity': item['quantity']
-                    })
-            
-            df = pd.DataFrame(csv_data)
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
-            
-            st.download_button(
-                label="Download CSV",
-                data=csv_buffer.getvalue(),
-                file_name=f"BOM_{bom['assembly_number']}.csv",
-                mime="text/csv",
-                key=f"download_{export_key}"
-            )
+                        csv_data.append({
+                            'Category': category,
+                            'Part Number': item.get('part_number', ''),
+                            'Description': item.get('description', ''),
+                            'Quantity': item.get('quantity', 0)
+                        })
+                
+                df = pd.DataFrame(csv_data)
+                csv_buffer = io.StringIO()
+                df.to_csv(csv_buffer, index=False)
+                
+                st.download_button(
+                    label="Download CSV",
+                    data=csv_buffer.getvalue(),
+                    file_name=f"BOM_{assembly_num}.csv",
+                    mime="text/csv",
+                    key=f"download_{export_key}"
+                )
 
 def display_order_result(result):
     """Display order processing result"""

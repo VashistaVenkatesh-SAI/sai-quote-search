@@ -271,26 +271,30 @@ def extract_text_from_pdf(pdf_file):
 def extract_board_names(text):
     """First pass: Just identify board names in the quote"""
     
-    prompt = f"""Look at this switchboard/switchgear quote and identify ALL board names.
+    prompt = f"""Look at the SCOPE OF WORK section of this quote and identify the board names.
 
-WHAT COUNTS AS A BOARD:
-- Contains "switchboard", "switchgear", or "substation" in the name
-- Has sections listed underneath it (Section 101, Section 102, etc.)
-- Examples: "UL891 Switchboard", "12kV SlimVAC Metal Enclosed Main Switchgear", "Substation 1 – 1500kVA"
+RULES:
+1. ONLY look in the "SCOPE OF WORK" section of the quote
+2. A board is a product being quoted with sections (Section 101, 102, etc.) listed underneath
+3. Board names typically include project-specific names like:
+   - "EEWRC 12kV SlimVAC Metal Enclosed Main Switchgear"
+   - "Substation 1 – 1500kVA"
+   - "Main Distribution Switchboard"
 
-WHAT IS NOT A BOARD (do NOT include):
-- "Transformer Section" - this is a component, not a board
-- "Factory Testing and Services" - this is a service
-- "Included Accessories" - this is a list of extras
-- Any section that doesn't have Section numbers underneath it
+DO NOT INCLUDE:
+- Generic product names from marketing pages (like just "UL891 Switchboard" or "UL1558 Switchgear" without a project name)
+- "Transformer Section" - this is a component within a substation
+- "Factory Testing and Services" 
+- "Included Accessories"
+- Anything from the last few pages that looks like marketing material
 
 QUOTE TEXT:
 {text[:50000]}
 
-Return ONLY a JSON array of the ACTUAL board names found (should typically be 2-10 boards):
-["Board Name 1", "Board Name 2", "Board Name 3"]
+Return ONLY a JSON array of board names from the SCOPE OF WORK:
+["Board Name 1", "Board Name 2"]
 
-Return ONLY the JSON array, nothing else:
+Return ONLY the JSON array:
 
 Return ONLY a JSON array of board names found:
 ["Board Name 1", "Board Name 2", "Board Name 3"]

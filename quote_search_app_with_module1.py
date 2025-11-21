@@ -271,19 +271,27 @@ def extract_text_from_pdf(pdf_file):
 def extract_quote_data(text):
     """Use AI to extract structured data from quote"""
     
-    # Limit text length to prevent token overflow (approx 12000 chars = ~3000 tokens)
-    max_chars = 15000
+    # For very long quotes, we may need to process in chunks
+    # First, let's try to get all boards
+    
+    # Limit text length but keep more for better coverage
+    max_chars = 25000
+    original_length = len(text)
+    truncated = False
+    
     if len(text) > max_chars:
-        # Take first part and last part to capture key info
-        text = text[:max_chars//2] + "\n\n... [MIDDLE SECTION TRUNCATED] ...\n\n" + text[-max_chars//2:]
+        truncated = True
+        # Keep more from beginning (where board descriptions usually are)
+        text = text[:int(max_chars*0.7)] + "\n\n... [TRUNCATED FOR LENGTH] ...\n\n" + text[-int(max_chars*0.3):]
     
     prompt = f"""Analyze this switchboard/switchgear quote and extract structured information.
 
 IMPORTANT RULES:
-1. FIRST identify all BOARDS in the quote. Boards are separated by bolded lines with "switchboard" or "switchgear" in the name.
+1. FIRST identify ALL BOARDS in the quote. Boards are separated by bolded lines with "switchboard" or "switchgear" in the name.
 2. Each board has a NAME (e.g., "UL891 Switchboard", "Main Distribution Switchboard", "UL1558 Switchgear")
 3. Each board has SECTIONS underneath it (e.g., Section 101, Section 102, etc.)
 4. Board-level features are shared across all sections in that board
+5. EXTRACT ALL BOARDS - do not stop early!
 
 QUOTE TEXT:
 {text}
@@ -319,23 +327,25 @@ Extract and return as JSON:
    - hardware: Hardware type if mentioned (or null)
    - description: Brief description of section contents
 
+CRITICAL: Make sure to capture ALL boards and ALL sections. Do not truncate the response.
+
 Return ONLY valid JSON in this format:
 {{
     "boards": [
         {{
-            "board_name": "UL891 Switchboard",
+            "board_name": "Board Name Here",
             "board_features": {{
-                "ul_type": "UL891",
-                "phase": "3 phase",
-                "wires": "4 wire",
-                "voltage": "480Y/277V",
-                "main_bus_amperage": "2000A",
-                "ka_rating": "65kAIC@480V",
-                "nema_type": "NEMA 3R",
-                "paint_finish": "ANSI 61 gray",
-                "seismic_inclusions": "seismic bracing",
-                "cable_entry": "top or bottom cable entry",
-                "access_type": "front and rear access"
+                "ul_type": "...",
+                "phase": "...",
+                "wires": "...",
+                "voltage": "...",
+                "main_bus_amperage": "...",
+                "ka_rating": "...",
+                "nema_type": "...",
+                "paint_finish": "...",
+                "seismic_inclusions": "...",
+                "cable_entry": "...",
+                "access_type": "..."
             }},
             "sections": [
                 {{
@@ -347,7 +357,7 @@ Return ONLY valid JSON in this format:
                     "breaker_type": "Emax2",
                     "mounting_type": "Fixed",
                     "hardware": null,
-                    "description": "Main circuit breaker section"
+                    "description": "Description here"
                 }}
             ]
         }}
@@ -361,7 +371,7 @@ Return ONLY the JSON, no other text:"""
             engine=AZURE_OPENAI_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=8000
+            max_tokens=16000
         )
         
         result = response.choices[0].message["content"].strip()
@@ -642,12 +652,21 @@ else:
                 if quote_data:
                     boards = quote_data.get("boards", [])
                     
+                    # Check for incomplete data
+                    incomplete_boards = [b for b in boards if not b.get("sections")]
+                    if incomplete_boards:
+                        st.warning(f"⚠️ {len(incomplete_boards)} board(s) may have incomplete data. Very long quotes may be truncated.")
+                    
                     # Generate box numbers for each section in each board
                     all_boards = []
                     for board in boards:
                         board_name = board.get("board_name", "Unknown Board")
                         board_features = board.get("board_features", {})
                         sections = board.get("sections", [])
+                        
+                        # Skip boards with no sections (incomplete)
+                        if not sections:
+                            st.info(f"Board '{board_name}' has no sections - may be truncated")
                         
                         section_results = []
                         for section in sections:

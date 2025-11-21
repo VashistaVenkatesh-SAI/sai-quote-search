@@ -30,29 +30,36 @@ try:
 except ImportError:
     PDF_AVAILABLE = False
 
-# Configuration
-SEARCH_ENDPOINT = st.secrets["SEARCH_ENDPOINT"]
-SEARCH_KEY = st.secrets["SEARCH_KEY"]
-INDEX_NAME = st.secrets["INDEX_NAME"]
-AZURE_OPENAI_ENDPOINT = st.secrets["AZURE_OPENAI_ENDPOINT"]
-AZURE_OPENAI_KEY = st.secrets["AZURE_OPENAI_KEY"]
-AZURE_OPENAI_DEPLOYMENT = st.secrets["AZURE_OPENAI_DEPLOYMENT"]
-AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS = st.secrets["AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS"]
-AUTHORIZED_USERS = st.secrets["AUTHORIZED_USERS"]
+# Configuration - safely load secrets
+def get_secret(key, default=""):
+    try:
+        value = st.secrets[key]
+        return str(value) if value else default
+    except:
+        return default
+
+SEARCH_ENDPOINT = get_secret("SEARCH_ENDPOINT")
+SEARCH_KEY = get_secret("SEARCH_KEY")
+INDEX_NAME = get_secret("INDEX_NAME")
+AZURE_OPENAI_ENDPOINT = get_secret("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_KEY = get_secret("AZURE_OPENAI_KEY")
+AZURE_OPENAI_DEPLOYMENT = get_secret("AZURE_OPENAI_DEPLOYMENT")
+AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS = get_secret("AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS")
+AUTHORIZED_USERS = get_secret("AUTHORIZED_USERS", "admin:admin123")
 
 # Azure Blob Storage for Persistent Memory
-try:
-    AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE_STORAGE_CONNECTION_STRING"]
-    MEMORY_CONTAINER = "persistent-memory"
-    MEMORY_BLOB_NAME = "voltrix_memory.json"
-    BLOB_AVAILABLE = True
-except:
-    BLOB_AVAILABLE = False
+AZURE_STORAGE_CONNECTION_STRING = get_secret("AZURE_STORAGE_CONNECTION_STRING")
+MEMORY_CONTAINER = "persistent-memory"
+MEMORY_BLOB_NAME = "voltrix_memory.json"
+BLOB_AVAILABLE = bool(AZURE_STORAGE_CONNECTION_STRING)
 
 openai.api_type = "azure"
 openai.api_key = AZURE_OPENAI_KEY
 openai.api_base = AZURE_OPENAI_ENDPOINT
 openai.api_version = "2024-02-01"
+
+# Check if Azure OpenAI is configured
+OPENAI_AVAILABLE = bool(AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT)
 
 # ============================================
 # KNOWLEDGE BASE FUNCTIONS
@@ -154,7 +161,7 @@ def identify_product_line(features, knowledge_base):
 
 def get_blob_client():
     """Get Azure Blob client for memory storage"""
-    if not BLOB_AVAILABLE:
+    if not BLOB_AVAILABLE or not AZURE_STORAGE_CONNECTION_STRING:
         return None
     try:
         blob_service = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
@@ -908,8 +915,16 @@ if 'current_user' not in st.session_state:
     st.session_state.current_user = None
 
 def check_auth(username, password):
-    users = AUTHORIZED_USERS.split(',')
-    return f"{username}:{password}" in users
+    if not AUTHORIZED_USERS or not username or not password:
+        return False
+    try:
+        auth_string = str(AUTHORIZED_USERS)
+        users = auth_string.split(',')
+        credential = f"{username}:{password}"
+        return credential in users
+    except Exception as e:
+        st.error(f"Auth error: {e}")
+        return False
 
 def login_page():
     st.markdown("""

@@ -268,103 +268,188 @@ def extract_text_from_pdf(pdf_file):
         st.error(f"PDF error: {e}")
         return None
 
-def extract_quote_data(text):
-    """Use AI to extract structured data from quote"""
+def extract_board_names(text):
+    """First pass: Just identify board names in the quote"""
     
-    # For very long quotes, we may need to process in chunks
-    # First, let's try to get all boards
-    
-    # Limit text length but keep more for better coverage
-    max_chars = 25000
-    original_length = len(text)
-    truncated = False
-    
-    if len(text) > max_chars:
-        truncated = True
-        # Keep more from beginning (where board descriptions usually are)
-        text = text[:int(max_chars*0.7)] + "\n\n... [TRUNCATED FOR LENGTH] ...\n\n" + text[-int(max_chars*0.3):]
-    
-    prompt = f"""Analyze this switchboard/switchgear quote and extract structured information.
+    prompt = f"""Look at this switchboard/switchgear quote and identify ALL board names.
 
-IMPORTANT RULES:
-1. FIRST identify ALL BOARDS in the quote. Boards are separated by bolded lines with "switchboard" or "switchgear" in the name.
-2. Each board has a NAME (e.g., "UL891 Switchboard", "Main Distribution Switchboard", "UL1558 Switchgear")
-3. Each board has SECTIONS underneath it (e.g., Section 101, Section 102, etc.)
-4. Board-level features are shared across all sections in that board
-5. EXTRACT ALL BOARDS - do not stop early!
+Boards are typically labeled with names like:
+- "UL891 Switchboard"
+- "UL1558 Switchgear" 
+- "Main Distribution Switchboard"
+- "SlimVAC Metal Enclosed Switchgear"
+- etc.
+
+Look for bold headers or titles that contain "switchboard", "switchgear", or similar.
+
+QUOTE TEXT:
+{text[:40000]}
+
+Return ONLY a JSON array of board names found:
+["Board Name 1", "Board Name 2", "Board Name 3"]
+
+Return ONLY the JSON array, nothing else:"""
+
+    try:
+        response = openai.ChatCompletion.create(
+            engine=AZURE_OPENAI_DEPLOYMENT,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=1000
+        )
+        
+        result = response.choices[0].message["content"].strip()
+        
+        if result.startswith("```"):
+            result = result.split("```")[1]
+            if result.startswith("json"):
+                result = result[4:]
+        result = result.strip()
+        
+        return json.loads(result)
+    except Exception as e:
+        st.warning(f"Could not extract board names: {e}")
+        return []
+
+def extract_single_board(text, board_name):
+    """Extract details for a single board"""
+    
+    # Limit text length
+    if len(text) > 35000:
+        text = text[:35000]
+    
+    prompt = f"""Extract information for ONLY the board named "{board_name}" from this quote.
 
 QUOTE TEXT:
 {text}
 
-Extract and return as JSON:
+Extract for this board:
+1. BOARD FEATURES:
+   - ul_type, phase, wires, voltage, main_bus_amperage, ka_rating
+   - nema_type, paint_finish, seismic_inclusions, cable_entry, access_type
 
-1. For EACH BOARD found, extract:
-   - board_name: The name/title of the board (e.g., "UL891 Switchboard")
-   - board_features: Shared features for this board
-   - sections: List of sections belonging to this board
+2. ALL SECTIONS belonging to this board (Section 101, 102, etc.):
+   - identifier, height, width, depth
+   - breaker_manufacturer, breaker_type, mounting_type, hardware, description
 
-2. BOARD FEATURES (shared across all sections in a board):
-   - ul_type: UL listing (e.g., "UL891", "UL1558")
-   - phase: Phase configuration (e.g., "3 phase", "3PH")
-   - wires: Wire count (e.g., "4 wire", "4W")
-   - voltage: Voltage (e.g., "480Y/277V", "480V")
-   - main_bus_amperage: Main bus amps (e.g., "2000A")
-   - ka_rating: Short circuit rating (e.g., "65kAIC@480V")
-   - nema_type: NEMA enclosure (e.g., "NEMA 3R")
-   - paint_finish: Paint/finish (e.g., "ANSI 61 gray")
-   - seismic_inclusions: Seismic requirements (e.g., "seismic bracing", or null)
-   - cable_entry: Cable entry type (e.g., "top or bottom cable entry")
-   - access_type: Access type (e.g., "front and rear access")
+Return ONLY valid JSON:
+{{
+    "board_name": "{board_name}",
+    "board_features": {{
+        "ul_type": "...",
+        "phase": "...",
+        "wires": "...",
+        "voltage": "...",
+        "main_bus_amperage": "...",
+        "ka_rating": "...",
+        "nema_type": "...",
+        "paint_finish": "...",
+        "seismic_inclusions": "...",
+        "cable_entry": "...",
+        "access_type": "..."
+    }},
+    "sections": [
+        {{
+            "identifier": "Section 101",
+            "height": 72,
+            "width": 42,
+            "depth": 56,
+            "breaker_manufacturer": "ABB",
+            "breaker_type": "Emax2",
+            "mounting_type": "Fixed",
+            "hardware": null,
+            "description": "..."
+        }}
+    ]
+}}
 
-3. For EACH SECTION within a board:
-   - identifier: Section ID (e.g., "Section 101")
-   - height: Height in inches (number only)
-   - width: Width in inches (number only)
-   - depth: Depth in inches (number only)
-   - breaker_manufacturer: Breaker brand (e.g., "ABB", "Schneider", or null)
-   - breaker_type: Breaker model (e.g., "Emax2", "TMAX XT")
-   - mounting_type: Mounting (e.g., "Fixed", "Drawout", or null)
-   - hardware: Hardware type if mentioned (or null)
-   - description: Brief description of section contents
+Return ONLY the JSON:"""
 
-CRITICAL: Make sure to capture ALL boards and ALL sections. Do not truncate the response.
+    try:
+        response = openai.ChatCompletion.create(
+            engine=AZURE_OPENAI_DEPLOYMENT,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=8000
+        )
+        
+        result = response.choices[0].message["content"].strip()
+        
+        if result.startswith("```"):
+            result = result.split("```")[1]
+            if result.startswith("json"):
+                result = result[4:]
+        result = result.strip()
+        
+        # Clean up JSON
+        result = re.sub(r',\s*}', '}', result)
+        result = re.sub(r',\s*]', ']', result)
+        
+        return json.loads(result)
+    except Exception as e:
+        st.warning(f"Could not extract board '{board_name}': {e}")
+        return None
 
-Return ONLY valid JSON in this format:
+def extract_quote_data(text):
+    """Use AI to extract structured data from quote - chunked approach for large quotes"""
+    
+    # Step 1: Get all board names
+    st.info("Step 1: Identifying boards...")
+    board_names = extract_board_names(text)
+    
+    if not board_names:
+        st.warning("No boards found, trying single extraction...")
+        # Fallback to single extraction
+        return extract_quote_data_single(text)
+    
+    st.info(f"Found {len(board_names)} board(s): {', '.join(board_names)}")
+    
+    # Step 2: Extract each board separately
+    boards = []
+    for i, board_name in enumerate(board_names):
+        st.info(f"Step 2: Extracting board {i+1}/{len(board_names)}: {board_name}...")
+        board_data = extract_single_board(text, board_name)
+        if board_data:
+            boards.append(board_data)
+    
+    return {"boards": boards}
+
+def extract_quote_data_single(text):
+    """Fallback: Single extraction for smaller quotes"""
+    
+    max_chars = 25000
+    if len(text) > max_chars:
+        text = text[:int(max_chars*0.7)] + "\n\n... [TRUNCATED] ...\n\n" + text[-int(max_chars*0.3):]
+    
+    prompt = f"""Analyze this switchboard/switchgear quote and extract structured information.
+
+IMPORTANT: Identify ALL BOARDS and ALL SECTIONS.
+
+QUOTE TEXT:
+{text}
+
+Return JSON with this structure:
 {{
     "boards": [
         {{
-            "board_name": "Board Name Here",
+            "board_name": "Board Name",
             "board_features": {{
-                "ul_type": "...",
-                "phase": "...",
-                "wires": "...",
-                "voltage": "...",
-                "main_bus_amperage": "...",
-                "ka_rating": "...",
-                "nema_type": "...",
-                "paint_finish": "...",
-                "seismic_inclusions": "...",
-                "cable_entry": "...",
-                "access_type": "..."
+                "ul_type": "...", "phase": "...", "wires": "...", "voltage": "...",
+                "main_bus_amperage": "...", "ka_rating": "...", "nema_type": "...",
+                "paint_finish": "...", "seismic_inclusions": "...", "cable_entry": "...", "access_type": "..."
             }},
             "sections": [
                 {{
-                    "identifier": "Section 101",
-                    "height": 72,
-                    "width": 42,
-                    "depth": 56,
-                    "breaker_manufacturer": "ABB",
-                    "breaker_type": "Emax2",
-                    "mounting_type": "Fixed",
-                    "hardware": null,
-                    "description": "Description here"
+                    "identifier": "Section 101", "height": 72, "width": 42, "depth": 56,
+                    "breaker_manufacturer": "ABB", "breaker_type": "Emax2",
+                    "mounting_type": "Fixed", "hardware": null, "description": "..."
                 }}
             ]
         }}
     ]
 }}
 
-Return ONLY the JSON, no other text:"""
+Return ONLY the JSON:"""
 
     try:
         response = openai.ChatCompletion.create(
@@ -376,26 +461,19 @@ Return ONLY the JSON, no other text:"""
         
         result = response.choices[0].message["content"].strip()
         
-        # Clean up JSON
         if result.startswith("```"):
             result = result.split("```")[1]
             if result.startswith("json"):
                 result = result[4:]
         result = result.strip()
         
-        # Try to fix common JSON issues
-        # Remove trailing commas before } or ]
         result = re.sub(r',\s*}', '}', result)
         result = re.sub(r',\s*]', ']', result)
         
-        # Try parsing
         try:
             return json.loads(result)
-        except json.JSONDecodeError as je:
-            # Try to find and extract valid JSON
-            st.warning(f"JSON parse issue, attempting recovery...")
-            
-            # Find the last complete object
+        except json.JSONDecodeError:
+            # Try to recover
             brace_count = 0
             last_valid_pos = 0
             for i, char in enumerate(result):
@@ -407,13 +485,7 @@ Return ONLY the JSON, no other text:"""
                         last_valid_pos = i + 1
             
             if last_valid_pos > 0:
-                truncated = result[:last_valid_pos]
-                try:
-                    return json.loads(truncated)
-                except:
-                    pass
-            
-            st.error(f"AI extraction error: {je}")
+                return json.loads(result[:last_valid_pos])
             return None
         
     except Exception as e:

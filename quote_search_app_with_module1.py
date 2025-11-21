@@ -271,6 +271,12 @@ def extract_text_from_pdf(pdf_file):
 def extract_quote_data(text):
     """Use AI to extract structured data from quote"""
     
+    # Limit text length to prevent token overflow (approx 12000 chars = ~3000 tokens)
+    max_chars = 15000
+    if len(text) > max_chars:
+        # Take first part and last part to capture key info
+        text = text[:max_chars//2] + "\n\n... [MIDDLE SECTION TRUNCATED] ...\n\n" + text[-max_chars//2:]
+    
     prompt = f"""Analyze this switchboard/switchgear quote and extract structured information.
 
 IMPORTANT RULES:
@@ -355,7 +361,7 @@ Return ONLY the JSON, no other text:"""
             engine=AZURE_OPENAI_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=4000
+            max_tokens=8000
         )
         
         result = response.choices[0].message["content"].strip()
@@ -367,7 +373,38 @@ Return ONLY the JSON, no other text:"""
                 result = result[4:]
         result = result.strip()
         
-        return json.loads(result)
+        # Try to fix common JSON issues
+        # Remove trailing commas before } or ]
+        result = re.sub(r',\s*}', '}', result)
+        result = re.sub(r',\s*]', ']', result)
+        
+        # Try parsing
+        try:
+            return json.loads(result)
+        except json.JSONDecodeError as je:
+            # Try to find and extract valid JSON
+            st.warning(f"JSON parse issue, attempting recovery...")
+            
+            # Find the last complete object
+            brace_count = 0
+            last_valid_pos = 0
+            for i, char in enumerate(result):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        last_valid_pos = i + 1
+            
+            if last_valid_pos > 0:
+                truncated = result[:last_valid_pos]
+                try:
+                    return json.loads(truncated)
+                except:
+                    pass
+            
+            st.error(f"AI extraction error: {je}")
+            return None
         
     except Exception as e:
         st.error(f"AI extraction error: {e}")

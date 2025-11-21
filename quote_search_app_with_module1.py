@@ -959,7 +959,7 @@ def check_auth(username, password):
 def login_page():
     st.markdown("""
     <div style="text-align: center; margin-bottom: 2rem;">
-        <h1 style="color: #fff; font-size: 2.5rem;">Voltrix</h1>
+        <h1 style="color: #fff; font-size: 2.5rem;">Pulse</h1>
         <p style="color: #6b6b6b;">Box Number Generator</p>
     </div>
     """, unsafe_allow_html=True)

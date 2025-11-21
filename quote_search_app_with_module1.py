@@ -1,17 +1,20 @@
 """
-Voltrix BOM Generator - COMPLETE VERSION
-Upload quote PDFs or type specifications for instant BOM generation
-Uses Module1_Training_Examples.xlsx for matching
+Voltrix BOM Generator v2.0
+- JSON Knowledge Base for box selection
+- 12 Feature Extraction from quotes
+- Order Upload with Persistent Memory (Azure Blob)
 """
 import streamlit as st
 import openai
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
+from azure.storage.blob import BlobServiceClient
 import pandas as pd
 import json
 import re
 import io
+from datetime import datetime
 
 # Module 1 Matcher
 try:
@@ -37,12 +40,633 @@ AZURE_OPENAI_DEPLOYMENT = st.secrets["AZURE_OPENAI_DEPLOYMENT"]
 AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS = st.secrets["AZURE_OPENAI_DEPLOYMENT_EMBEDDINGS"]
 AUTHORIZED_USERS = st.secrets["AUTHORIZED_USERS"]
 
+# Azure Blob Storage for Persistent Memory
+try:
+    AZURE_STORAGE_CONNECTION_STRING = st.secrets["AZURE_STORAGE_CONNECTION_STRING"]
+    MEMORY_CONTAINER = "persistent-memory"
+    MEMORY_BLOB_NAME = "voltrix_memory.json"
+    BLOB_AVAILABLE = True
+except:
+    BLOB_AVAILABLE = False
+
 openai.api_type = "azure"
 openai.api_key = AZURE_OPENAI_KEY
 openai.api_base = AZURE_OPENAI_ENDPOINT
 openai.api_version = "2024-02-01"
 
-# Page config
+# ============================================
+# KNOWLEDGE BASE FUNCTIONS
+# ============================================
+
+@st.cache_data
+def load_knowledge_base():
+    """Load BoxKnowledge.json for box selection logic"""
+    try:
+        with open("BoxKnowledge.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        st.warning("BoxKnowledge.json not found - using default logic")
+        return None
+    except Exception as e:
+        st.error(f"Error loading knowledge base: {e}")
+        return None
+
+def get_dimension_code(dimension_type, value, knowledge_base):
+    """Get letter code for dimension from knowledge base"""
+    if not knowledge_base:
+        return "Z"
+    
+    mappings = knowledge_base.get("dimension_mappings", {}).get(dimension_type, {})
+    
+    # Try exact match first
+    str_value = str(value)
+    if str_value in mappings:
+        return mappings[str_value]
+    
+    # Try numeric match
+    try:
+        num_value = float(value)
+        for key, code in mappings.items():
+            try:
+                if float(key) == num_value:
+                    return code
+            except:
+                continue
+    except:
+        pass
+    
+    return "Z"  # Custom
+
+def get_finish_code(finish_name, knowledge_base):
+    """Get finish code from knowledge base"""
+    if not knowledge_base:
+        return "99"
+    
+    finish_codes = knowledge_base.get("finish_codes", {})
+    finish_lower = finish_name.lower()
+    
+    for code, name in finish_codes.items():
+        if name.lower() in finish_lower or finish_lower in name.lower():
+            return code
+    
+    return "99"  # Other
+
+def identify_product_line(features, knowledge_base):
+    """Identify product line (S1/S2/S3/Switchgear/SlimVAC) from features"""
+    if not knowledge_base:
+        return "Unknown"
+    
+    ul_type = features.get("ul_type", "").upper()
+    breaker_info = features.get("breaker_type", "").upper()
+    description = features.get("description", "").upper()
+    
+    # Check for SlimVAC
+    if "SLIMVAC" in description:
+        return "SlimVAC"
+    
+    # Check for Switchgear (UL1558)
+    if "1558" in ul_type:
+        return "Switchgear (UL1558)"
+    
+    # Check for Switchboard types (UL891)
+    if "891" in ul_type:
+        # Check breaker types
+        mccb_indicators = ["MCCB", "TMAX", "MASTERPACT"]
+        iccb_indicators = ["ICCB", "EMAX", "NW"]
+        
+        has_mccb = any(ind in breaker_info or ind in description for ind in mccb_indicators)
+        has_iccb = any(ind in breaker_info or ind in description for ind in iccb_indicators)
+        
+        if has_mccb and has_iccb:
+            return "S2 (MCCB + ICCB)"
+        elif has_iccb:
+            return "S3 (ICCB)"
+        elif has_mccb:
+            return "S1 (MCCB/Panelboard)"
+        else:
+            return "Switchboard (UL891)"
+    
+    return "Unknown"
+
+# ============================================
+# PERSISTENT MEMORY FUNCTIONS
+# ============================================
+
+def get_blob_client():
+    """Get Azure Blob client for memory storage"""
+    if not BLOB_AVAILABLE:
+        return None
+    try:
+        blob_service = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+        container_client = blob_service.get_container_client(MEMORY_CONTAINER)
+        return container_client.get_blob_client(MEMORY_BLOB_NAME)
+    except Exception as e:
+        st.error(f"Blob connection error: {e}")
+        return None
+
+def load_memory():
+    """Load persistent memory from Azure Blob"""
+    blob_client = get_blob_client()
+    if not blob_client:
+        return {"patterns": [], "last_updated": None}
+    
+    try:
+        blob_data = blob_client.download_blob().readall()
+        return json.loads(blob_data)
+    except Exception:
+        # Memory doesn't exist yet, return empty
+        return {"patterns": [], "last_updated": None}
+
+def save_memory(memory_data):
+    """Save persistent memory to Azure Blob"""
+    blob_client = get_blob_client()
+    if not blob_client:
+        return False
+    
+    try:
+        memory_data["last_updated"] = datetime.now().isoformat()
+        blob_client.upload_blob(json.dumps(memory_data, indent=2), overwrite=True)
+        return True
+    except Exception as e:
+        st.error(f"Error saving memory: {e}")
+        return False
+
+def store_pattern_in_memory(features, box_number, source_type="quote"):
+    """Store a successful feature-to-box pattern in memory"""
+    memory = load_memory()
+    
+    # Create pattern entry
+    pattern = {
+        "features": features,
+        "box_number": box_number,
+        "source_type": source_type,
+        "timestamp": datetime.now().isoformat(),
+        "match_count": 1
+    }
+    
+    # Check if similar pattern exists
+    for existing in memory["patterns"]:
+        if features_match(existing["features"], features):
+            existing["match_count"] += 1
+            existing["timestamp"] = datetime.now().isoformat()
+            save_memory(memory)
+            return
+    
+    # Add new pattern
+    memory["patterns"].append(pattern)
+    save_memory(memory)
+
+def features_match(features1, features2, threshold=0.7):
+    """Check if two feature sets match above threshold"""
+    if not features1 or not features2:
+        return False
+    
+    matches = 0
+    total = 0
+    
+    for key in features1:
+        if key in features2 and features1[key] and features2[key]:
+            total += 1
+            if str(features1[key]).upper() == str(features2[key]).upper():
+                matches += 1
+    
+    if total == 0:
+        return False
+    
+    return (matches / total) >= threshold
+
+def find_matching_patterns(features, min_matches=3):
+    """Find patterns in memory that match given features"""
+    memory = load_memory()
+    matches = []
+    
+    for pattern in memory["patterns"]:
+        match_score = 0
+        matched_features = []
+        
+        for key, value in features.items():
+            if value and key in pattern["features"]:
+                if str(pattern["features"][key]).upper() == str(value).upper():
+                    match_score += 1
+                    matched_features.append(key)
+        
+        if match_score >= min_matches:
+            matches.append({
+                "pattern": pattern,
+                "score": match_score,
+                "matched_features": matched_features,
+                "times_seen": pattern.get("match_count", 1)
+            })
+    
+    # Sort by score and times seen
+    matches.sort(key=lambda x: (x["score"], x["times_seen"]), reverse=True)
+    return matches
+
+# ============================================
+# FEATURE EXTRACTION
+# ============================================
+
+# The 12 features to extract
+BOARD_FEATURES = [
+    "ul_type",
+    "board_phase", 
+    "board_wires",
+    "voltage",
+    "main_bus_amperage",
+    "ka_rating",
+    "nema_type",
+    "paint_finish",
+    "seismic_inclusions",
+    "wireway_trolley",
+    "control_access",
+    "cabling_entry"
+]
+
+def extract_features_from_text(text):
+    """Extract the 12 board features from quote/order text using AI"""
+    knowledge_base = load_knowledge_base()
+    
+    prompt = f"""Extract board/switchboard features from this text. Return ONLY a JSON object with these exact keys.
+If a feature is not found, set its value to null.
+
+Features to extract:
+1. ul_type - UL listing type (e.g., "UL891", "UL1558", "UL891+")
+2. board_phase - Phase configuration (e.g., "3PH", "1PH", "3 Phase")
+3. board_wires - Wire configuration (e.g., "4W", "3W", "4 Wire")
+4. voltage - Voltage rating (e.g., "480/277V", "480V", "208V")
+5. main_bus_amperage - Main bus amp rating (e.g., "5000A", "4000A", "2000A")
+6. ka_rating - Short circuit rating (e.g., "100kAIC", "65kAIC", "100kAIC@480V")
+7. nema_type - NEMA enclosure type (e.g., "NEMA 3R", "NEMA 1", "NEMA 3R outdoor")
+8. paint_finish - Paint/finish type (e.g., "ANSI 61 gray", "ANSI 49 grey", "black")
+9. seismic_inclusions - Seismic requirements (e.g., "seismic bracing", "seismic zone 4", null if none)
+10. wireway_trolley - Wireway/trolley provisions (e.g., "wireway", "trolley track", null if none)
+11. control_access - Control access type (e.g., "front access only", "front and rear access")
+12. cabling_entry - Cable entry type (e.g., "bottom cable entry", "top entry", "top and bottom")
+
+Also extract if present:
+13. breaker_type - Type of breakers mentioned (e.g., "MCCB", "ICCB", "EMAX", "TMAX")
+14. section_count - Number of sections (e.g., "5 sections", "3 sections")
+15. dimensions - Any H/W/D dimensions found
+
+Text to analyze:
+{text}
+
+Return ONLY valid JSON, no other text:"""
+
+    try:
+        client = openai.AzureOpenAI(
+            api_key=AZURE_OPENAI_KEY,
+            api_version="2024-02-01",
+            azure_endpoint=AZURE_OPENAI_ENDPOINT
+        )
+        
+        response = client.chat.completions.create(
+            model=AZURE_OPENAI_DEPLOYMENT,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=1000
+        )
+        
+        result = response.choices[0].message.content.strip()
+        
+        # Clean up JSON response
+        if result.startswith("```"):
+            result = result.split("```")[1]
+            if result.startswith("json"):
+                result = result[4:]
+        result = result.strip()
+        
+        features = json.loads(result)
+        
+        # Add product line identification
+        features["product_line"] = identify_product_line(features, knowledge_base)
+        
+        return features
+        
+    except Exception as e:
+        st.error(f"Feature extraction error: {e}")
+        return {}
+
+def display_features_card(features):
+    """Display extracted features in a nice card format"""
+    st.markdown("""
+    <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+        <div style="font-size: 1.1rem; font-weight: 600; color: #fff; margin-bottom: 1rem; border-bottom: 1px solid #333; padding-bottom: 0.5rem;">
+            Extracted Features
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Feature display mapping
+    feature_labels = {
+        "ul_type": "UL Type",
+        "board_phase": "Phase",
+        "board_wires": "Wires",
+        "voltage": "Voltage",
+        "main_bus_amperage": "Main Bus Amperage",
+        "ka_rating": "kA Rating",
+        "nema_type": "NEMA Type",
+        "paint_finish": "Paint/Finish",
+        "seismic_inclusions": "Seismic",
+        "wireway_trolley": "Wireway/Trolley",
+        "control_access": "Control Access",
+        "cabling_entry": "Cable Entry",
+        "product_line": "Product Line",
+        "breaker_type": "Breaker Type",
+        "section_count": "Sections"
+    }
+    
+    cols = st.columns(3)
+    col_idx = 0
+    
+    for key, label in feature_labels.items():
+        value = features.get(key)
+        if value:  # Only show features that have values
+            with cols[col_idx % 3]:
+                st.markdown(f"""
+                <div style="margin-bottom: 0.75rem;">
+                    <div style="color: #6b6b6b; font-size: 0.75rem; text-transform: uppercase;">{label}</div>
+                    <div style="color: #fff; font-size: 0.95rem;">{value}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            col_idx += 1
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ============================================
+# ORDER PROCESSING
+# ============================================
+
+def process_order(order_text):
+    """Process an order using memory patterns"""
+    # Extract features from order
+    features = extract_features_from_text(order_text)
+    
+    if not features:
+        return {
+            "status": "error",
+            "message": "Could not extract features from order"
+        }
+    
+    # Find matching patterns in memory
+    matches = find_matching_patterns(features, min_matches=2)
+    
+    if matches:
+        best_match = matches[0]
+        return {
+            "status": "memory_match",
+            "features": features,
+            "suggested_box": best_match["pattern"]["box_number"],
+            "confidence": best_match["score"],
+            "matched_features": best_match["matched_features"],
+            "times_seen": best_match["times_seen"],
+            "all_matches": matches[:5]  # Top 5 matches
+        }
+    else:
+        # No memory match - try direct matching with available info
+        return {
+            "status": "no_match",
+            "features": features,
+            "message": "No matching patterns found in memory. Process more quotes to build knowledge."
+        }
+
+# ============================================
+# PDF EXTRACTION
+# ============================================
+
+def extract_text_from_pdf(pdf_file):
+    """Extract text from uploaded PDF"""
+    try:
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        st.error(f"PDF extraction error: {e}")
+        return None
+
+def extract_specs_from_text(text):
+    """Use AI to extract structured specs from quote text"""
+    knowledge_base = load_knowledge_base()
+    kb_context = ""
+    
+    if knowledge_base:
+        kb_context = f"""
+Use this knowledge base for reference:
+- Product Lines: {json.dumps(knowledge_base.get('product_line_identification', {}), indent=2)}
+- Section Labels: {json.dumps(knowledge_base.get('section_characteristics', {}).get('section_labels', []))}
+- Breaker Identification: {json.dumps(knowledge_base.get('breaker_identification', {}))}
+"""
+    
+    prompt = f"""Analyze this switchboard/switchgear quote and extract structured information.
+
+{kb_context}
+
+QUOTE TEXT:
+{text}
+
+For each SECTION found, extract:
+1. Section identifier (e.g., "Section 1", "101", "Main")
+2. Dimensions (Height, Width, Depth in inches)
+3. Breaker type (MCCB/ICCB/etc) and frame info
+4. Section label type (Transition/Distribution/Tie/Control/Auxiliary/Pass-Through)
+5. Match percentage confidence (0-100) for matching to a standard assembly
+
+Also extract BOARD-LEVEL features (shared across sections):
+- UL Type (891, 1558)
+- Phase and Wires
+- Voltage
+- Main Bus Amperage
+- kA Rating
+- NEMA type
+- Paint/Finish
+- Seismic requirements
+- Wireway/Trolley provisions
+- Control Access type
+- Cable Entry type
+
+Return as JSON:
+{{
+    "board_features": {{
+        "ul_type": "...",
+        "board_phase": "...",
+        "board_wires": "...",
+        "voltage": "...",
+        "main_bus_amperage": "...",
+        "ka_rating": "...",
+        "nema_type": "...",
+        "paint_finish": "...",
+        "seismic_inclusions": "...",
+        "wireway_trolley": "...",
+        "control_access": "...",
+        "cabling_entry": "..."
+    }},
+    "sections": [
+        {{
+            "identifier": "Section 1",
+            "height": 90,
+            "width": 24,
+            "depth": 36,
+            "breaker_type": "ICCB",
+            "breaker_frame": "EMAX E2",
+            "section_label": "Distribution",
+            "matched_assembly": "401",
+            "match_percentage": 85,
+            "reasoning": "Dimensions and breaker type align",
+            "suggested_assemblies": [
+                {{"assembly": "401", "match_pct": 85, "reason": "Best match"}},
+                {{"assembly": "402", "match_pct": 70, "reason": "Similar dimensions"}}
+            ]
+        }}
+    ]
+}}
+
+Return ONLY valid JSON:"""
+
+    try:
+        client = openai.AzureOpenAI(
+            api_key=AZURE_OPENAI_KEY,
+            api_version="2024-02-01",
+            azure_endpoint=AZURE_OPENAI_ENDPOINT
+        )
+        
+        response = client.chat.completions.create(
+            model=AZURE_OPENAI_DEPLOYMENT,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=4000
+        )
+        
+        result = response.choices[0].message.content.strip()
+        
+        # Clean up response
+        if result.startswith("```"):
+            result = result.split("```")[1]
+            if result.startswith("json"):
+                result = result[4:]
+        result = result.strip()
+        
+        return json.loads(result)
+        
+    except Exception as e:
+        st.error(f"AI extraction error: {e}")
+        return None
+
+# ============================================
+# BOM DISPLAY
+# ============================================
+
+def display_bom_card(module1_result, unique_id=None):
+    """Display BOM results in a card format"""
+    if module1_result.get('status') == 'exact_match':
+        bom = module1_result['bom']
+        
+        # Match percentage badge
+        match_pct = module1_result.get('match_percentage')
+        if match_pct:
+            badge_html = f'<span class="status-badge"> {match_pct}% Match</span>'
+        else:
+            badge_html = '<span class="status-badge">Matched</span>'
+        
+        st.markdown(f"""
+        <div class="bom-card">
+            <div class="bom-header">
+                <div class="bom-title">Module 1 BOM</div>
+                {badge_html}
+            </div>
+            <div class="bom-assembly">Assembly: {bom['assembly_number']}</div>
+            <div class="bom-specs">{bom['height']}"H × {bom['width']}"W × {bom['depth']}"D</div>
+            <div class="bom-specs">Breaker: {bom['breaker_type']}</div>
+            <div class="bom-specs">Total Parts: {bom['total_parts']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Expandable component list
+        export_key = f"export_{unique_id}" if unique_id else "export_bom"
+        expander_key = f"components_{unique_id}" if unique_id else "components"
+        
+        with st.expander(f"View all {bom['total_parts']} components", expanded=False):
+            for category, items in bom['components'].items():
+                if items:
+                    st.markdown(f"**{category}**")
+                    for item in items:
+                        st.markdown(f"""
+                        <div class="component-item">
+                            <span class="component-number">{item['part_number']}</span> - 
+                            {item['description']} (Qty: {item['quantity']})
+                        </div>
+                        """, unsafe_allow_html=True)
+        
+        # Export button
+        if st.button("Export BOM to CSV", key=export_key):
+            csv_data = []
+            for category, items in bom['components'].items():
+                for item in items:
+                    csv_data.append({
+                        'Category': category,
+                        'Part Number': item['part_number'],
+                        'Description': item['description'],
+                        'Quantity': item['quantity']
+                    })
+            
+            df = pd.DataFrame(csv_data)
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+            
+            st.download_button(
+                label="Download CSV",
+                data=csv_buffer.getvalue(),
+                file_name=f"BOM_{bom['assembly_number']}.csv",
+                mime="text/csv",
+                key=f"download_{export_key}"
+            )
+
+def display_order_result(result):
+    """Display order processing result"""
+    if result["status"] == "memory_match":
+        st.markdown(f"""
+        <div style="background: #1a2e1a; border: 2px solid #22c55e; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+            <div style="font-size: 1.25rem; font-weight: 600; color: #22c55e; margin-bottom: 0.5rem;">
+                Pattern Match Found
+            </div>
+            <div style="color: #a0a0a0; margin-bottom: 1rem;">
+                Matched {result['confidence']} features | Seen {result['times_seen']} time(s) before
+            </div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: #fff;">
+                Suggested Box: {result['suggested_box']}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("**Matched Features:**")
+        for feat in result['matched_features']:
+            st.markdown(f"- {feat}: {result['features'].get(feat, 'N/A')}")
+        
+        if len(result['all_matches']) > 1:
+            st.markdown("**Other Possible Matches:**")
+            for match in result['all_matches'][1:]:
+                st.markdown(f"- {match['pattern']['box_number']} ({match['score']} features matched)")
+    
+    elif result["status"] == "no_match":
+        st.markdown(f"""
+        <div style="background: #2d2d2d; border: 2px solid #f59e0b; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+            <div style="font-size: 1.25rem; font-weight: 600; color: #f59e0b; margin-bottom: 0.5rem;">
+                No Pattern Match
+            </div>
+            <div style="color: #a0a0a0;">
+                {result['message']}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Always show extracted features
+    if result.get("features"):
+        display_features_card(result["features"])
+
+# ============================================
+# PAGE CONFIG & STYLES
+# ============================================
+
 st.set_page_config(
     page_title="VOLTRIX",
     page_icon="V",
@@ -50,7 +674,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# CSS Styling - Modern Monotone Dark Theme
+# CSS Styling
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -65,9 +689,8 @@ st.markdown("""
         --accent: #303030;
     }
     
-    /* Global Styles */
     * {
-        font-family: 'Consoloas', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-family: 'Consolas', 'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
     
     .stApp {
@@ -75,42 +698,23 @@ st.markdown("""
         color: var(--text);
     }
     
-    /* Force uniform background */
     .main, .block-container, [data-testid="stAppViewContainer"] {
         background: #0a0a0a !important;
     }
     
-    /* Hide Streamlit Elements */
     #MainMenu, footer, header {visibility: hidden;}
     .stDeployButton {display: none;}
     section[data-testid="stSidebar"] {display: none !important;}
     
-    /* Main Container - Centered clean and modern */
     .main .block-container {
         max-width: 900px;
         padding: 1rem 2rem 4rem 2rem;
         margin: 0 auto;
     }
     
-    /* Top Right Controls - Extreme top-right clean and modern */
-    .element-container:has(.top-right-controls) {
-        position: fixed !important;
-        top: 1rem !important;
-        right: 2rem !important;
-        z-index: 9999 !important;
-        display: flex !important;
-        gap: 0.5rem !important;
-    }
-    
-    /* Style for top control buttons */
-    div[data-testid="column"]:has(button) {
-        min-width: fit-content !important;
-    }
-    
-    /* Logo - Centered at top clean and modern */
     .app-logo {
         text-align: center;
-        margin-bottom: 3rem;
+        margin-bottom: 2rem;
     }
     
     .app-logo h1 {
@@ -130,36 +734,6 @@ st.markdown("""
         margin-top: 0.5rem;
     }
     
-    /* Header for login page */
-    .app-header {
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    
-    .app-header h1 {
-        color: var(--text);
-        margin: 0;
-        font-size: 2rem;
-        font-weight: 600;
-    }
-    
-    .app-header p {
-        color: var(--text-secondary);
-        margin: 0.75rem 0 0 0;
-        font-size: 0.95rem;
-    }
-    
-    /* Search Bar Container - Exactly clean and modern */
-    .search-container {
-        margin: 0 auto 1rem;
-        max-width: 500px;
-    }
-    
-    /* Main Search Input - modern style with high curve */
-    .stChatInput {
-        margin-bottom: 1rem;
-    }
-    
     .stChatInput > div {
         background: var(--surface);
         border: 1px solid var(--border);
@@ -173,92 +747,45 @@ st.markdown("""
         color: var(--text) !important;
         padding: 1rem 1.5rem !important;
         font-size: 1rem !important;
-        min-height: 50px !important;
     }
     
-    .stChatInput textarea::placeholder {
-        color: var(--text-secondary) !important;
-    }
-    
-    /* Action Buttons Below Search - Like modern DeepSearch, Pick Personas, Voice */
-    .search-actions {
-        display: flex;
-        justify-content: center;
-        gap: 0.75rem;
-        margin-top: 1rem;
-    }
-    
-    .search-action-btn {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        color: var(--text-secondary);
-        padding: 0.625rem 1.25rem;
-        border-radius: 20px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    
-    .search-action-btn:hover {
-        background: var(--surface-hover);
-        color: var(--text);
-        border-color: #404040;
-    }
-    
-    /* Chat Messages - Monotone */
     .user-message {
         background: var(--surface);
         border: 1px solid var(--border);
-        color: var(--text);
         padding: 1rem 1.5rem;
-        border-radius: 20px;
-        margin: 1.5rem auto;
-        margin-left: auto;
-        max-width: 85%;
-        font-size: 0.95rem;
-        line-height: 1.6;
+        border-radius: 12px;
+        margin: 1rem 0;
+        color: var(--text);
     }
     
     .assistant-message {
-        background: var(--surface);
-        border: 1px solid var(--border);
+        background: transparent;
+        padding: 1rem 0;
         color: var(--text);
-        padding: 1.5rem 2rem;
-        border-radius: 20px;
-        margin: 1.5rem auto;
-        max-width: 85%;
-        font-size: 0.95rem;
-        line-height: 1.7;
+        line-height: 1.6;
     }
     
-    /* BOM Card - Monotone */
     .bom-card {
         background: var(--surface);
         border: 1px solid var(--border);
-        border-radius: 20px;
-        padding: 2rem;
-        margin: 2rem auto;
-        max-width: 100%;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
     }
     
     .bom-header {
         display: flex;
-        align-items: center;
         justify-content: space-between;
-        margin-bottom: 1.5rem;
-        padding-bottom: 1.5rem;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
         border-bottom: 1px solid var(--border);
     }
     
     .bom-title {
-        font-size: 1.25rem;
+        font-size: 1.125rem;
         font-weight: 600;
         color: var(--text);
-        letter-spacing: -0.01em;
     }
     
     .status-badge {
@@ -268,925 +795,386 @@ st.markdown("""
         border-radius: 20px;
         font-size: 0.75rem;
         font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
     }
     
-    /* Component Items - Monotone */
+    .bom-assembly {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 0.5rem;
+    }
+    
+    .bom-specs {
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        margin: 0.25rem 0;
+    }
+    
     .component-item {
         background: transparent;
         border: 1px solid var(--border);
-        padding: 1rem 1.5rem;
-        border-radius: 12px;
-        margin: 0.75rem 0;
-        transition: all 0.2s ease;
-    }
-    
-    .component-item:hover {
-        background: var(--surface-hover);
-        border-color: #404040;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
     }
     
     .component-number {
         font-family: 'Courier New', monospace;
         color: var(--text);
         font-weight: 500;
-        font-size: 0.95rem;
     }
     
-    /* Buttons - Monotone modern style */
     .stButton > button {
         background: var(--surface);
-        color: var(--text);
         border: 1px solid var(--border);
+        color: var(--text-secondary);
         border-radius: 20px;
-        padding: 0.75rem 1.5rem;
+        padding: 0.5rem 1rem;
         font-weight: 500;
-        font-size: 0.875rem;
         transition: all 0.2s ease;
     }
     
     .stButton > button:hover {
         background: var(--surface-hover);
-        border-color: #404040;
-        transform: translateY(-1px);
-    }
-    
-    /* Download Button */
-    .stDownloadButton > button {
-        background: var(--surface);
         color: var(--text);
-        border: 1px solid var(--border);
-        border-radius: 20px;
-        padding: 0.75rem 1.5rem;
-        font-weight: 500;
-    }
-    
-    .stDownloadButton > button:hover {
-        background: var(--surface-hover);
         border-color: #404040;
     }
     
-    /* File Uploader - Make it look like a button */
-    .stFileUploader {
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-    }
-    
-    .stFileUploader > div {
-        background: var(--surface) !important;
-        border: 1px solid var(--border) !important;
-        border-radius: 20px !important;
-        padding: 0 !important;
-        min-height: auto !important;
-    }
-    
-    .stFileUploader section {
-        border: none !important;
-        padding: 0.625rem 1.25rem !important;
-        background: transparent !important;
-    }
-    
-    .stFileUploader section > div > div {
-        display: none !important;
-    }
-    
-    .stFileUploader section::after {
-        content: "Browse Files";
-        color: var(--text-secondary);
-        font-size: 0.875rem;
-        font-weight: 500;
-        display: block;
-    }
-    
-    .stFileUploader button {
-        display: none !important;
-    }
-    
-    .stFileUploader label {
-        display: none !important;
-    }
-    
-    .stFileUploader [data-testid="stFileUploaderDropzone"] {
-        min-height: auto !important;
-        padding: 0 !important;
-        border: none !important;
-        background: transparent !important;
-    }
-    
-    .stFileUploader [data-testid="stFileUploaderDropzoneInput"] {
-        cursor: pointer !important;
-    }
-    
-    .stFileUploader:hover > div {
-        border-color: #404040 !important;
-        background: var(--surface-hover) !important;
-    }
-    
-    /* When file is uploaded */
-    .stFileUploader:has([data-testid="stFileUploaderFileName"]) section::after {
-        content: "File Selected";
-        color: var(--text);
-    }
-    
-    /* Make all column buttons compact */
-    div[data-testid="column"] .stButton > button {
-        padding: 0.625rem 1rem !important;
-        border-radius: 20px !important;
-        font-size: 0.875rem !important;
-        min-width: fit-content !important;
-    }
-    
-    /* Metrics - Monotone */
-    .stMetric {
-        background: transparent;
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1rem;
-    }
-    
-    .stMetric label {
-        color: var(--text-secondary) !important;
-        font-size: 0.8rem !important;
-        font-weight: 500 !important;
-    }
-    
-    .stMetric [data-testid="stMetricValue"] {
-        color: var(--text) !important;
-        font-size: 1.5rem !important;
-        font-weight: 600 !important;
-    }
-    
-    /* Expander - Monotone */
-    .streamlit-expanderHeader {
-        background: transparent;
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        color: var(--text) !important;
-        font-weight: 500;
-    }
-    
-    .streamlit-expanderHeader:hover {
-        background: var(--surface-hover);
-        border-color: #404040;
-    }
-    
-    /* Info/Success/Warning Boxes - Monotone */
-    .stAlert {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        color: var(--text);
-    }
-    
-    /* Scrollbar - Minimal */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: transparent;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: var(--border);
-        border-radius: 4px;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: #404040;
-    }
-    
-    /* Code Blocks - Monotone */
-    code {
-        background: var(--surface) !important;
-        border: 1px solid var(--border) !important;
-        color: var(--text) !important;
-        padding: 0.25rem 0.5rem !important;
-        border-radius: 6px !important;
-        font-family: 'Courier New', monospace !important;
-    }
-    
-    /* Dividers */
-    hr {
-        border-color: var(--border);
-        margin: 2rem 0;
-        opacity: 0.5;
-    }
-    
-    /* Footer - Minimal clean and modern */
     .footer-text {
         text-align: center;
         color: var(--text-secondary);
-        font-size: 0.75rem;
-        margin-top: 4rem;
+        font-size: 0.8rem;
         padding: 2rem 0;
+    }
+    
+    .memory-badge {
+        background: #1a2e1a;
+        border: 1px solid #22c55e;
+        color: #22c55e;
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 500;
     }
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data
-def load_training_examples():
-    """Load training examples from Excel"""
-    try:
-        df = pd.read_excel('Module1_Training_Examples.xlsx', sheet_name='Examples')
-        
-        # Convert to dictionary grouped by assembly
-        examples_dict = {}
-        for _, row in df.iterrows():
-            assembly = row['Assembly_Number']
-            example = row['Example_Quote_Snippet']
-            
-            if assembly not in examples_dict:
-                examples_dict[assembly] = []
-            examples_dict[assembly].append(example)
-        
-        # Create formatted text for AI with ALL examples
-        examples_text = "MODULE 1 TRAINING EXAMPLES:\n\n"
-        for assembly, examples in sorted(examples_dict.items()):
-            examples_text += f"Assembly {assembly}:\n"
-            for i, example in enumerate(examples, 1):
-                examples_text += f"  Example {i}: \"{example}\"\n"
-            examples_text += "\n"
-        
-        return examples_text, examples_dict
-        
-    except Exception as e:
-        st.error(f"Could not load training examples: {e}")
-        return None, None
+# ============================================
+# AUTHENTICATION
+# ============================================
 
-def check_password():
-    """Authentication"""
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-    
-    if st.session_state.authenticated:
-        return True
-    
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = None
+
+def check_auth(username, password):
+    users = AUTHORIZED_USERS.split(',')
+    return f"{username}:{password}" in users
+
+def login_page():
     st.markdown("""
-    <div class="app-header">
+    <div class="app-logo">
         <h1>Voltrix</h1>
-        <p>Sign in to access the automated BOM generation system</p>
+        <div class="app-logo-badge">BOM Generator</div>
     </div>
     """, unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.markdown("### Welcome back")
+        st.markdown("### Sign In")
         username = st.text_input("Username", key="username")
         password = st.text_input("Password", type="password", key="password")
         
-        if st.button("Sign in", use_container_width=True):
-            if username in AUTHORIZED_USERS and AUTHORIZED_USERS[username] == password:
+        if st.button("Sign In", use_container_width=True):
+            if check_auth(username, password):
                 st.session_state.authenticated = True
                 st.session_state.current_user = username
-                st.success("Signed in successfully")
                 st.rerun()
             else:
                 st.error("Invalid credentials")
-        
-        st.markdown("---")
-        st.caption("For authorized SAI personnel only")
+
+# ============================================
+# MAIN APP
+# ============================================
+
+if not st.session_state.authenticated:
+    login_page()
+else:
+    # Top controls
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        if st.button("Sign out", key="signout"):
+            st.session_state.authenticated = False
+            st.session_state.current_user = None
+            st.rerun()
+    with col2:
+        if st.button("Clear", key="clear"):
+            st.session_state.messages = []
+            st.rerun()
+    with col3:
+        # Show memory status
+        memory = load_memory()
+        pattern_count = len(memory.get("patterns", []))
+        st.button(f"Memory: {pattern_count}", key="memory_status", disabled=True)
     
-    return False
-
-# Initialize session state
-if 'messages' not in st.session_state:
-    st.session_state.messages = []
-if 'search_client' not in st.session_state:
-    st.session_state.search_client = SearchClient(
-        endpoint=SEARCH_ENDPOINT,
-        index_name=INDEX_NAME,
-        credential=AzureKeyCredential(SEARCH_KEY)
-    )
-
-# Check authentication
-if not check_password():
-    st.stop()
-
-def extract_text_from_pdf(pdf_file):
-    """Extract text from PDF"""
-    try:
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
-        return text
-    except Exception as e:
-        st.error(f"Error reading PDF: {e}")
-        return None
-
-def extract_specs_from_text(text):
-    """Extract specifications and match to examples from Excel"""
+    st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
     
-    # Load training examples from Excel
-    examples_text, examples_dict = load_training_examples()
-    
-    if not examples_text:
-        st.warning("Reference data not available - using fallback")
-        examples_text = """10 assemblies available:
-123456-0100-101: 90H x 40W x 60D, Emax 6.2
-123456-0100-102: 90H x 40W x 60D, (3) Emax 2.2
-123456-0100-103: 90H x 40W x 60D, (2) Emax 2.2
-123456-0100-201: 90H x 40W x 60D, Emax 6.2, Drawout
-123456-0100-202: 90H x 40W x 60D, Emax 2.2, Drawout
-123456-0100-203: 90H x 40W x 60D, (2) Emax 2.2, Drawout
-123456-0100-204: 90H x 42W x 60D, Tmax
-123456-0100-301: 90H x 30W x 48D, Emax 2.2
-123456-0100-302: 90H x 42W x 48D, Tmax
-123456-0100-401: 78H x 42W x 33D, Square D"""
-    else:
-        st.success("Loaded assembly reference data")
-
-    system_prompt = f"""You are an expert at identifying Module 1 switchgear assemblies from quotes.
-
-ASSEMBLY REFERENCE DATA:
-{examples_text}
-
-YOUR TASK:
-1. Read the quote and identify ALL sections
-2. For EACH section, extract specifications and calculate match quality
-3. Calculate a match percentage (0-100%) based on how well specs align
-4. If match is below 40%, suggest 2-3 closest assemblies instead
-
-MATCH PERCENTAGE CALCULATION:
-- Dimensions match exactly: +25% each (Height, Width, Depth = 75% total)
-- Breaker type matches: +15%
-- Breaker quantity matches: +10%
-- 100% = perfect match, 75-99% = good match, 40-74% = partial match, <40% = no match
-
-For each section, explain like this:
-
-HIGH CONFIDENCE (>=75%):
-"Section [X] matches Assembly [NUMBER] (XX% match):
-
-Quote specifications:
-- Dimensions: [what you found]
-- Breaker: [what you found]
-- Mount: [what you found]
-- Access: [what you found]
-
-This matches Assembly [NUMBER] which has these exact specifications."
-
-LOW CONFIDENCE (<40%):
-"Section [X] has no exact match (<40% confidence):
-
-Quote specifications:
-- Dimensions: [what you found]
-- Breaker: [what you found]
-
-Closest assemblies:
-1. Assembly [NUMBER]: [specs] (XX% match - different [feature])
-2. Assembly [NUMBER]: [specs] (XX% match - different [feature])
-3. Assembly [NUMBER]: [specs] (XX% match - different [feature])"
-
-CRITICAL: Extract ALL sections from the quote. Most quotes have multiple sections (Section 101, 102, 103, etc.)
-
-Return JSON with ALL sections:
-{{
-  "sections": [
-    {{
-      "identifier": "Section 101",
-      "dimensions": {{"height": "90", "width": "40", "depth": "60"}},
-      "main_circuit_breaker": {{"type": "ABB SACE Emax 6.2", "quantity": 1}},
-      "special_requirements": ["fixed mount", "front and rear access"],
-      "matched_assembly": "123456-0100-101",
-      "match_percentage": 100,
-      "reasoning": "Section 101 has 90H x 40W x 60D dimensions with an Emax 6.2 breaker. This matches Assembly 123456-0100-101 perfectly."
-    }},
-    {{
-      "identifier": "Section 104",
-      "dimensions": {{"height": "90", "width": "50", "depth": "70"}},
-      "main_circuit_breaker": {{"type": "Square D", "quantity": 1}},
-      "special_requirements": [],
-      "matched_assembly": null,
-      "match_percentage": 35,
-      "suggested_assemblies": [
-        {{"assembly": "123456-0100-401", "reason": "Closest dimensions (78H x 42W x 33D)", "match_pct": 35}},
-        {{"assembly": "123456-0100-302", "reason": "Similar width (42W)", "match_pct": 30}}
-      ],
-      "reasoning": "Section 104 has no exact match. The dimensions 90H x 50W x 70D don't match any available assembly. Closest option is Assembly 401 with 78H x 42W x 33D."
-    }}
-  ]
-}}
-
-IMPORTANT: 
-- Calculate match_percentage accurately (0-100)
-- If match_percentage < 40, set matched_assembly to null and provide suggested_assemblies
-- Always include reasoning that explains the match quality"""
-
-    user_prompt = f"""Analyze this quote and identify ALL sections. For each section, determine which assembly it matches and explain why.
-
-Quote:
-{text[:15000]}
-
-Return complete JSON with all sections and natural explanations."""
-    
-    try:
-        response = openai.ChatCompletion.create(
-            engine=AZURE_OPENAI_DEPLOYMENT,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.0,
-            max_tokens=4000,
-            timeout=40
-        )
-        
-        ai_response = response.choices[0].message.content.strip()
-        
-        # Clean JSON
-        ai_response = ai_response.replace("```json", "").replace("```", "").strip()
-        start = ai_response.find('{')
-        end = ai_response.rfind('}') + 1
-        if start != -1 and end > start:
-            ai_response = ai_response[start:end]
-        
-        # Remove trailing commas
-        for _ in range(5):
-            ai_response = re.sub(r',(\s*[}\]])', r'\1', ai_response)
-        
-        parsed = json.loads(ai_response)
-        return parsed
-        
-    except Exception as e:
-        st.error(f"Error extracting specs: {e}")
-        return None
-
-def display_bom_card(bom_data, unique_id=None):
-    """Display Module 1 BOM card with match explanations and match percentage"""
-    
-    status = bom_data.get('status')
-    matched_assemblies = bom_data.get('matched_assemblies', [])
-    extracted_features = bom_data.get('extracted_features', {})
-    match_percentage = bom_data.get('match_percentage', None)  # NEW: Get match %
-    
-    # Show selection buttons if multiple/no exact match
-    if status in ['ambiguous', 'no_match'] and matched_assemblies:
-        # Show detected specs
-        st.markdown("### Detected Specifications:")
-        det_col1, det_col2, det_col3, det_col4 = st.columns(4)
-        with det_col1:
-            st.metric("Height", f"{extracted_features.get('height', '?')}\"")
-        with det_col2:
-            st.metric("Width", f"{extracted_features.get('width', '?')}\"")
-        with det_col3:
-            st.metric("Depth", f"{extracted_features.get('depth', '?')}\"")
-        with det_col4:
-            breaker = extracted_features.get('breaker_type', 'Not specified')
-            st.metric("Breaker", breaker[:20] if len(breaker) > 20 else breaker)
-        
-        st.markdown("---")
-        
-        matcher = get_matcher()
-        
-        # Pre-filter: Calculate match scores and filter out <50%
-        assemblies_with_scores = []
-        for assembly_num in matched_assemblies:
-            specs = matcher.assembly_specs[assembly_num]
-            
-            match_score = 0
-            total_possible = 4
-            
-            if extracted_features.get('height') == specs['height']:
-                match_score += 1
-            if extracted_features.get('width') == specs['width']:
-                match_score += 1
-            if extracted_features.get('depth') == specs['depth']:
-                match_score += 1
-            
-            if extracted_features.get('breaker_type'):
-                breaker_match = extracted_features['breaker_type'].upper() in specs['breaker_type'].upper() or specs['breaker_type'].upper() in extracted_features['breaker_type'].upper()
-                if breaker_match:
-                    match_score += 1
-            
-            match_pct = int((match_score / total_possible) * 100)
-            
-            # Only include if 50% or higher
-            if match_pct >= 50:
-                assemblies_with_scores.append((assembly_num, match_pct, specs))
-        
-        # Sort by match percentage (highest first)
-        assemblies_with_scores.sort(key=lambda x: x[1], reverse=True)
-        
-        if not assemblies_with_scores:
-            st.error(" No assemblies match at 50% or higher. Please check specifications.")
-            return
-        
-        st.markdown(f"### Select an assembly ({len(assemblies_with_scores)} matches >=50%):")
-        
-        num_assemblies = min(len(assemblies_with_scores), 9)
-        cols_per_row = 3
-        
-        for i in range(0, num_assemblies, cols_per_row):
-            cols = st.columns(cols_per_row)
-            for j in range(cols_per_row):
-                idx = i + j
-                if idx < num_assemblies:
-                    assembly_num, match_pct, specs = assemblies_with_scores[idx]
-                    
-                    with cols[j]:
-                        # Button
-                        if st.button(f"**{assembly_num}**\n{match_pct}% Match", key=f"select_{assembly_num}_{idx}", use_container_width=True):
-                            selected_bom = matcher.generate_bom(assembly_num)
-                            
-                            st.session_state.messages.append({
-                                "role": "user",
-                                "content": f"Show BOM for {assembly_num}"
-                            })
-                            
-                            st.session_state.messages.append({
-                                "role": "assistant",
-                                "content": f"Showing BOM for Assembly {assembly_num}",
-                                "module1_result": {
-                                    'status': 'exact_match',
-                                    'bom': selected_bom,
-                                    'message': f"BOM for {assembly_num}"
-                                },
-                                "type": "module1"
-                            })
-                            
-                            st.rerun()
-                        
-                        # Match details
-                        height_match = extracted_features.get('height') == specs['height']
-                        width_match = extracted_features.get('width') == specs['width']
-                        depth_match = extracted_features.get('depth') == specs['depth']
-                        breaker_match = False
-                        if extracted_features.get('breaker_type'):
-                            breaker_match = extracted_features['breaker_type'].upper() in specs['breaker_type'].upper() or specs['breaker_type'].upper() in extracted_features['breaker_type'].upper()
-                        
-                        st.caption("**Match Details:**")
-                        st.caption(f"{'' if height_match else ''} Height: {specs['height']}\"")
-                        st.caption(f"{'' if width_match else ''} Width: {specs['width']}\"")
-                        st.caption(f"{'' if depth_match else ''} Depth: {specs['depth']}\"")
-                        st.caption(f"{'' if breaker_match else ''} Breaker: {specs['breaker_type'][:20]}...")
-                        st.caption(f"Mount: {specs['mount']}")
-                        st.caption(f"Access: {specs['access']}")
-        
-        return  # Exit early
-    
-    # Show BOM card for exact match
-    if not bom_data or 'bom' not in bom_data or not bom_data['bom']:
-        return
-    
-    bom = bom_data['bom']
-    
-    # Create badge with match percentage if available
-    if match_percentage is not None:
-        badge_html = f'<span class="status-badge"> {match_percentage}% Match</span>'
-    else:
-        badge_html = '<span class="status-badge"> Matched</span>'
-    
-    st.markdown(f"""
-    <div class="bom-card">
-        <div class="bom-header">
-            <div class="bom-title">Module 1 BOM</div>
-            {badge_html}
-        </div>
-        <div style="font-size: 1.125rem; color: #e8e8e8; font-weight: 600;">
-            Assembly: {bom['assembly_number']}
-        </div>
-        <div style="color: #b0b0b0; margin-top: 0.5rem;">{bom['project']}</div>
+    # Logo
+    st.markdown("""
+    <div class="app-logo">
+        <h1>Voltrix</h1>
+        <div class="app-logo-badge">BOM Generator v2.0</div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Specifications
-    specs = bom['specifications']
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown("**Dimensions**")
-        st.code(f"{specs['height']}\"H x {specs['width']}\"W x {specs['depth']}\"D")
-    
-    with col2:
-        st.markdown("**Breaker**")
-        st.code(f"{specs['breaker_type']}")
-    
-    with col3:
-        st.markdown("**Mount**")
-        st.code(specs['mount'])
-    
-    with col4:
-        st.markdown("**Access**")
-        st.code(specs['access'])
-    
-    st.markdown(f"**Total Components:** `{bom['total_parts']} parts`")
-    
-    # Components list
-    with st.expander(f"View all {bom['total_parts']} components", expanded=False):
-        for i, comp in enumerate(bom['components'], 1):
-            st.markdown(f"""
-            <div class="component-item">
-                <span style="color: #b0b0b0; font-size: 0.85rem;">#{i}</span>
-                <span class="component-number">{comp['part_number']}</span>
-                <span style="color: #b0b0b0; margin-right: 1rem;">Qty: {comp['quantity']}</span>
-                <div style="color: #b0b0b0; font-size: 0.85rem; margin-top: 0.25rem;">{comp.get('description', '')[:80]}</div>
-            </div>
-            """, unsafe_allow_html=True)
-    
-    # Export to CSV
-    export_key = f"export_{bom['assembly_number']}" if not unique_id else f"export_{unique_id}"
-    download_key = f"download_{bom['assembly_number']}" if not unique_id else f"download_{unique_id}"
-    
-    if st.button(" Export BOM to CSV", key=export_key):
-        csv_buffer = io.StringIO()
-        csv_buffer.write("Item,Part Number,Description,Quantity\n")
+    # Process Quote PDF if triggered
+    if hasattr(st.session_state, 'trigger_quote_process') and st.session_state.trigger_quote_process:
+        pdf_to_process = st.session_state.current_quote_pdf
+        st.session_state.trigger_quote_process = False
         
-        for i, comp in enumerate(bom['components'], 1):
-            part_num = comp['part_number'].replace(',', ';')
-            desc = comp.get('description', '').replace(',', ';').replace('\n', ' ')
-            qty = comp['quantity']
-            csv_buffer.write(f"{i},{part_num},{desc},{qty}\n")
-        
-        csv_str = csv_buffer.getvalue()
-        
-        st.download_button(
-            label=" Download CSV",
-            data=csv_str,
-            file_name=f"{bom['assembly_number']}_BOM.csv",
-            mime="text/csv",
-            key=download_key
-        )
-
-# Top Right Controls - Absolute positioning
-st.markdown("""
-<style>
-.top-controls-container {
-    position: fixed;
-    top: 1rem;
-    right: 1rem;
-    z-index: 9999;
-    display: flex;
-    gap: 0.5rem;
-}
-</style>
-<div class="top-controls-container">
-""", unsafe_allow_html=True)
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    if st.button("Sign out", key="signout_top"):
-        st.session_state.authenticated = False
-        st.session_state.current_user = None
-        st.rerun()
-with col2:
-    if st.button("Clear", key="clear_top"):
-        st.session_state.messages = []
-        st.rerun()
-with col3:
-    msg_count = len(st.session_state.messages)
-    st.button(f"Stats ({msg_count})", key="stats_top", disabled=True)
-
-st.markdown("</div>", unsafe_allow_html=True)
-st.markdown("<div style='height: 5rem;'></div>", unsafe_allow_html=True)
-
-# Centered Logo
-st.markdown("""
-<div class="app-logo">
-    <h1>Voltrix</h1>
-    <div class="app-logo-badge" style="font-size: 3rem; line-height: 1;">⚡</div>
-</div>
-""", unsafe_allow_html=True)
-
-# Process PDF if triggered
-if hasattr(st.session_state, 'trigger_pdf_process') and st.session_state.trigger_pdf_process:
-    pdf_to_process = st.session_state.current_pdf
-    st.session_state.trigger_pdf_process = False  # Reset trigger
-    
-    with st.spinner("Reading PDF..."):
-        text = extract_text_from_pdf(pdf_to_process)
-        
-        if text:
-            with st.spinner("Analyzing sections..."):
-                specs_json = extract_specs_from_text(text)
-                
-                if specs_json and 'sections' in specs_json:
-                    # Process each section
-                    all_boms = []
-                    no_match_sections = []
+        with st.spinner("Reading quote PDF..."):
+            text = extract_text_from_pdf(pdf_to_process)
+            
+            if text:
+                with st.spinner("Analyzing quote..."):
+                    specs_json = extract_specs_from_text(text)
                     
-                    for section in specs_json['sections']:
-                        section_id = section.get('identifier', 'Unknown')
-                        matched_assembly = section.get('matched_assembly', None)
-                        match_pct = section.get('match_percentage', 0)
-                        reasoning = section.get('reasoning', '')
-                        suggested = section.get('suggested_assemblies', [])
+                    if specs_json:
+                        board_features = specs_json.get("board_features", {})
+                        sections = specs_json.get("sections", [])
                         
-                        if matched_assembly and match_pct >= 40:
-                            try:
-                                matcher = get_matcher()
-                                section_bom = matcher.generate_bom(matched_assembly)
-                                all_boms.append({
+                        all_boms = []
+                        no_match_sections = []
+                        
+                        for section in sections:
+                            section_id = section.get('identifier', 'Unknown')
+                            matched_assembly = section.get('matched_assembly', None)
+                            match_pct = section.get('match_percentage', 0)
+                            reasoning = section.get('reasoning', '')
+                            suggested = section.get('suggested_assemblies', [])
+                            
+                            if matched_assembly and match_pct >= 40:
+                                try:
+                                    matcher = get_matcher()
+                                    section_bom = matcher.generate_bom(matched_assembly)
+                                    all_boms.append({
+                                        'section_id': section_id,
+                                        'assembly': matched_assembly,
+                                        'bom': section_bom,
+                                        'reasoning': reasoning,
+                                        'match_percentage': match_pct
+                                    })
+                                    
+                                    # Store in memory
+                                    section_features = {**board_features, **section}
+                                    store_pattern_in_memory(section_features, matched_assembly, "quote")
+                                    
+                                except Exception as e:
+                                    st.warning(f"Error for {section_id}: {e}")
+                            else:
+                                no_match_sections.append({
                                     'section_id': section_id,
-                                    'assembly': matched_assembly,
-                                    'bom': section_bom,
                                     'reasoning': reasoning,
-                                    'match_percentage': match_pct
+                                    'match_percentage': match_pct,
+                                    'suggested': suggested
                                 })
-                            except Exception as e:
-                                st.warning(f"Error for {section_id}: {e}")
-                        else:
-                            no_match_sections.append({
-                                'section_id': section_id,
-                                'reasoning': reasoning,
-                                'match_percentage': match_pct,
-                                'suggested': suggested
-                            })
+                        
+                        # Create messages
+                        summary = f"Quote: {pdf_to_process.name}\n\n"
+                        if all_boms:
+                            summary += f"{len(all_boms)} section(s) matched\n"
+                        if no_match_sections:
+                            summary += f"{len(no_match_sections)} section(s) need review\n"
+                        
+                        st.session_state.messages.append({"role": "user", "content": summary})
+                        
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": "Quote analyzed. See results below.",
+                            "board_features": board_features,
+                            "all_boms": all_boms,
+                            "no_match_sections": no_match_sections,
+                            "type": "quote_result"
+                        })
+                        
+                        st.rerun()
+                    else:
+                        st.error("Could not analyze quote")
+            else:
+                st.error("Could not read PDF")
+    
+    # Process Order PDF if triggered
+    if hasattr(st.session_state, 'trigger_order_process') and st.session_state.trigger_order_process:
+        pdf_to_process = st.session_state.current_order_pdf
+        st.session_state.trigger_order_process = False
+        
+        with st.spinner("Reading order PDF..."):
+            text = extract_text_from_pdf(pdf_to_process)
+            
+            if text:
+                with st.spinner("Searching memory for patterns..."):
+                    result = process_order(text)
                     
-                    # Create messages
-                    summary = f"{pdf_to_process.name}\n\n"
-                    if all_boms:
-                        summary += f"{len(all_boms)} section(s) matched\n"
-                    if no_match_sections:
-                        summary += f"{len(no_match_sections)} section(s) with no match\n"
-                    
-                    st.session_state.messages.append({"role": "user", "content": summary})
-                    
-                    full_message = ""
-                    if all_boms:
-                        for bom in all_boms:
-                            full_message += f"**{bom['section_id']}** - {bom['assembly']} ({bom['match_percentage']}%)\n\n"
-                    if no_match_sections:
-                        for nm in no_match_sections:
-                            full_message += f"**{nm['section_id']}** ({nm['match_percentage']}%)\n{nm['reasoning']}\n\n"
+                    st.session_state.messages.append({
+                        "role": "user", 
+                        "content": f"Order: {pdf_to_process.name}"
+                    })
                     
                     st.session_state.messages.append({
                         "role": "assistant",
-                        "content": full_message,
-                        "all_boms": all_boms,
-                        "no_match_sections": no_match_sections,
-                        "type": "multi_bom"
+                        "content": "Order analyzed using memory patterns.",
+                        "order_result": result,
+                        "type": "order_result"
                     })
                     
                     st.rerun()
-                else:
-                    st.error("Could not extract sections")
-        else:
-            st.error("Could not read PDF")
-
-# Display chat history
-for message in st.session_state.messages:
-    if message["role"] == "user":
-        st.markdown(f'<div class="user-message">{message["content"]}</div>', unsafe_allow_html=True)
-    else:
-        st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
-        
-        # Handle single BOM
-        if message.get("type") == "module1" and "module1_result" in message:
-            display_bom_card(message["module1_result"])
-        
-        # Handle multiple BOMs (multi-section quotes)
-        elif message.get("type") == "multi_bom":
-            # Display matched BOMs
-            if "all_boms" in message and message["all_boms"]:
-                for idx, bom_data in enumerate(message["all_boms"]):
-                    st.markdown(f"### {bom_data['section_id']}")
-                    
-                    # Create module1_result format for display with unique ID
-                    module1_result = {
-                        'status': 'exact_match',
-                        'bom': bom_data['bom'],
-                        'message': f"{bom_data['section_id']}: Assembly {bom_data['assembly']}",
-                        'match_percentage': bom_data.get('match_percentage', None)
-                    }
-                    
-                    # Pass unique ID to avoid duplicate widget keys
-                    unique_id = f"{bom_data['section_id']}_{bom_data['assembly']}_{idx}"
-                    display_bom_card(module1_result, unique_id=unique_id)
-                    st.markdown("---")
-            
-            # Display no-match sections with suggestions
-            if "no_match_sections" in message and message["no_match_sections"]:
-                st.markdown("### Sections Without Exact Match")
-                
-                for no_match in message["no_match_sections"]:
-                    st.markdown(f"""
-                    <div style="background: #2d2d2d; border: 2px solid #EF4444; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
-                        <div style="font-size: 1.125rem; font-weight: 600; color: #EF4444; margin-bottom: 0.5rem;">
-                            {no_match['section_id']}
-                        </div>
-                        <div style="color: #b0b0b0; margin-bottom: 1rem;">
-                            Match Confidence: {no_match['match_percentage']}% (Below 40% threshold)
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    if no_match.get('suggested'):
-                        st.markdown("**Suggested Alternatives - Pick one to generate BOM:**")
-                        
-                        # Create columns for suggested assembly buttons
-                        cols = st.columns(len(no_match['suggested'][:3]))
-                        
-                        for idx, sugg in enumerate(no_match['suggested'][:3]):
-                            assembly_num = sugg['assembly']
-                            reason = sugg['reason']
-                            sugg_pct = sugg.get('match_pct', 0)
-                            
-                            with cols[idx]:
-                                if st.button(
-                                    f"{assembly_num}\n({sugg_pct}% match)",
-                                    key=f"select_{no_match['section_id']}_{assembly_num}",
-                                    use_container_width=True
-                                ):
-                                    # Generate BOM for selected assembly
-                                    try:
-                                        matcher = get_matcher()
-                                        selected_bom = matcher.generate_bom(assembly_num)
-                                        
-                                        # Add to messages
-                                        st.session_state.messages.append({
-                                            "role": "user",
-                                            "content": f"Generate BOM for {assembly_num} (selected from {no_match['section_id']} suggestions)"
-                                        })
-                                        
-                                        st.session_state.messages.append({
-                                            "role": "assistant",
-                                            "content": f"Generated BOM for Assembly {assembly_num}",
-                                            "module1_result": {
-                                                'status': 'exact_match',
-                                                'bom': selected_bom,
-                                                'message': f"BOM for {assembly_num}"
-                                            },
-                                            "type": "module1"
-                                        })
-                                        
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error generating BOM: {e}")
-                                
-                                # Show reason below button
-                                st.caption(reason)
-                    
-                    st.markdown("---")
-
-st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
-
-# Action buttons integrated with search area at BOTTOM
-col1, col2, col3, col_space = st.columns([1.2, 1.2, 1, 5])
-
-with col1:
-    if MODULE1_AVAILABLE and PDF_AVAILABLE:
-        uploaded_pdf = st.file_uploader(
-            "",
-            type=['pdf'],
-            key="pdf_uploader",
-            label_visibility="collapsed"
-        )
-        
-with col2:
-    if MODULE1_AVAILABLE:
-        if st.button("List Assemblies", key="list_asm"):
-            matcher = get_matcher()
-            assembly_list = "**Available Module 1 Assemblies:**\n\n"
-            for asm_num in sorted(matcher.assembly_specs.keys()):
-                specs = matcher.assembly_specs[asm_num]
-                assembly_list += f"**{asm_num}**: {specs['height']}\"H × {specs['width']}\"W × {specs['depth']}\"D - {specs['breaker_type']}\n\n"
-            
-            st.session_state.messages.append({"role": "user", "content": "List all assemblies"})
-            st.session_state.messages.append({"role": "assistant", "content": assembly_list, "type": "text"})
-            st.rerun()
-
-# Show generate button only when file is uploaded
-if 'uploaded_pdf' in locals() and uploaded_pdf is not None:
-    with col3:
-        if st.button("Generate BOM", key="gen_bom"):
-            st.session_state.trigger_pdf_process = True
-            st.session_state.current_pdf = uploaded_pdf
-            st.rerun()
-
-# Chat input - main search bar
-user_input = st.chat_input("What do you want to know?")
-
-# Handle text input
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
+            else:
+                st.error("Could not read PDF")
     
-    if MODULE1_AVAILABLE:
-        with st.spinner("Matching to Module 1 assembly..."):
-            module1_result = match_from_user_input(user_input)
+    # Display chat history
+    for message in st.session_state.messages:
+        if message["role"] == "user":
+            st.markdown(f'<div class="user-message">{message["content"]}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="assistant-message">{message["content"]}</div>', unsafe_allow_html=True)
             
+            # Handle quote results
+            if message.get("type") == "quote_result":
+                # Display board features
+                if message.get("board_features"):
+                    display_features_card(message["board_features"])
+                
+                # Display matched BOMs
+                if message.get("all_boms"):
+                    for idx, bom_data in enumerate(message["all_boms"]):
+                        st.markdown(f"### {bom_data['section_id']}")
+                        module1_result = {
+                            'status': 'exact_match',
+                            'bom': bom_data['bom'],
+                            'message': f"{bom_data['section_id']}: Assembly {bom_data['assembly']}",
+                            'match_percentage': bom_data.get('match_percentage', None)
+                        }
+                        unique_id = f"{bom_data['section_id']}_{bom_data['assembly']}_{idx}"
+                        display_bom_card(module1_result, unique_id=unique_id)
+                        st.markdown("---")
+                
+                # Display no-match sections
+                if message.get("no_match_sections"):
+                    st.markdown("### Sections Without Exact Match")
+                    for no_match in message["no_match_sections"]:
+                        st.markdown(f"""
+                        <div style="background: #2d2d2d; border: 2px solid #EF4444; border-radius: 12px; padding: 1.5rem; margin: 1rem 0;">
+                            <div style="font-size: 1.125rem; font-weight: 600; color: #EF4444;">{no_match['section_id']}</div>
+                            <div style="color: #b0b0b0;">Match: {no_match['match_percentage']}%</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if no_match.get('suggested'):
+                            cols = st.columns(len(no_match['suggested'][:3]))
+                            for idx, sugg in enumerate(no_match['suggested'][:3]):
+                                with cols[idx]:
+                                    if st.button(f"{sugg['assembly']} ({sugg['match_pct']}%)", 
+                                                 key=f"sel_{no_match['section_id']}_{sugg['assembly']}"):
+                                        try:
+                                            matcher = get_matcher()
+                                            selected_bom = matcher.generate_bom(sugg['assembly'])
+                                            st.session_state.messages.append({
+                                                "role": "assistant",
+                                                "content": f"Generated BOM for {sugg['assembly']}",
+                                                "module1_result": {
+                                                    'status': 'exact_match',
+                                                    'bom': selected_bom,
+                                                    'message': f"BOM for {sugg['assembly']}"
+                                                },
+                                                "type": "module1"
+                                            })
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Error: {e}")
+                                    st.caption(sugg['reason'])
+            
+            # Handle order results
+            elif message.get("type") == "order_result":
+                display_order_result(message["order_result"])
+            
+            # Handle single BOM
+            elif message.get("type") == "module1" and "module1_result" in message:
+                display_bom_card(message["module1_result"])
+    
+    st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
+    
+    # Action buttons
+    col1, col2, col3, col4, col_space = st.columns([1.2, 1.2, 1.2, 1, 4])
+    
+    with col1:
+        if MODULE1_AVAILABLE and PDF_AVAILABLE:
+            uploaded_quote = st.file_uploader("", type=['pdf'], key="quote_uploader", 
+                                              label_visibility="collapsed", 
+                                              help="Upload Quote PDF")
+    
+    with col2:
+        if MODULE1_AVAILABLE and PDF_AVAILABLE:
+            uploaded_order = st.file_uploader("", type=['pdf'], key="order_uploader",
+                                              label_visibility="collapsed",
+                                              help="Upload Order PDF")
+    
+    with col3:
+        if MODULE1_AVAILABLE:
+            if st.button("List Assemblies", key="list_asm"):
+                matcher = get_matcher()
+                assembly_list = "**Available Assemblies:**\n\n"
+                for asm_num in sorted(matcher.assembly_specs.keys()):
+                    specs = matcher.assembly_specs[asm_num]
+                    assembly_list += f"**{asm_num}**: {specs['height']}\"H × {specs['width']}\"W × {specs['depth']}\"D\n\n"
+                st.session_state.messages.append({"role": "user", "content": "List assemblies"})
+                st.session_state.messages.append({"role": "assistant", "content": assembly_list, "type": "text"})
+                st.rerun()
+    
+    # Process buttons
+    if 'uploaded_quote' in locals() and uploaded_quote is not None:
+        with col4:
+            if st.button("Process Quote", key="proc_quote"):
+                st.session_state.trigger_quote_process = True
+                st.session_state.current_quote_pdf = uploaded_quote
+                st.rerun()
+    
+    if 'uploaded_order' in locals() and uploaded_order is not None:
+        with col4:
+            if st.button("Process Order", key="proc_order"):
+                st.session_state.trigger_order_process = True
+                st.session_state.current_order_pdf = uploaded_order
+                st.rerun()
+    
+    # Chat input
+    user_input = st.chat_input("Type specifications or ask a question...")
+    
+    if user_input:
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        
+        if MODULE1_AVAILABLE:
+            with st.spinner("Analyzing..."):
+                module1_result = match_from_user_input(user_input)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": module1_result['message'],
+                    "module1_result": module1_result,
+                    "type": "module1"
+                })
+        else:
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": module1_result['message'],
-                "module1_result": module1_result,
-                "type": "module1"
+                "content": "Module 1 matching not available.",
+                "type": "error"
             })
-    else:
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": "Module 1 matching not available.",
-            "type": "error"
-        })
-    st.rerun()
-
-# Footer
-st.markdown("""
-<div class="footer-text">
-    SAI Advanced Power Solutions • v1.2
-</div>
-""", unsafe_allow_html=True)
+        st.rerun()
+    
+    # Footer
+    st.markdown("""
+    <div class="footer-text">
+        SAI Advanced Power Solutions • Voltrix v2.0
+    </div>
+    """, unsafe_allow_html=True)

@@ -915,13 +915,36 @@ if 'current_user' not in st.session_state:
     st.session_state.current_user = None
 
 def check_auth(username, password):
-    if not AUTHORIZED_USERS or not username or not password:
+    if not username or not password:
         return False
+    
     try:
-        auth_string = str(AUTHORIZED_USERS)
-        users = auth_string.split(',')
-        credential = f"{username}:{password}"
-        return credential in users
+        # Handle dictionary format: [AUTHORIZED_USERS] admin = "password"
+        if hasattr(st.secrets, "AUTHORIZED_USERS"):
+            auth_dict = st.secrets["AUTHORIZED_USERS"]
+            
+            # If it's a dictionary/AttrDict
+            if hasattr(auth_dict, 'get') or isinstance(auth_dict, dict):
+                stored_password = auth_dict.get(username)
+                if stored_password and str(stored_password) == password:
+                    return True
+            
+            # If it's a string (old format: "user:pass,user2:pass2")
+            elif isinstance(auth_dict, str):
+                auth_string = str(auth_dict).strip().strip('"').strip("'")
+                if ',' in auth_string:
+                    users = [u.strip() for u in auth_string.split(',')]
+                else:
+                    users = [auth_string]
+                
+                credential = f"{username}:{password}"
+                for user in users:
+                    if ':' in user:
+                        u, p = user.split(':', 1)
+                        if u.strip() == username and p.strip() == password:
+                            return True
+        
+        return False
     except Exception as e:
         st.error(f"Auth error: {e}")
         return False

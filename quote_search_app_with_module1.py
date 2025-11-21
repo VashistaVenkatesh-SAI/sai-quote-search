@@ -321,20 +321,14 @@ Text to analyze:
 Return ONLY valid JSON, no other text:"""
 
     try:
-        client = openai.AzureOpenAI(
-            api_key=AZURE_OPENAI_KEY,
-            api_version="2024-02-01",
-            azure_endpoint=AZURE_OPENAI_ENDPOINT
-        )
-        
-        response = client.chat.completions.create(
-            model=AZURE_OPENAI_DEPLOYMENT,
+        response = openai.ChatCompletion.create(
+            engine=AZURE_OPENAI_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             max_tokens=1000
         )
         
-        result = response.choices[0].message.content.strip()
+        result = response.choices[0].message["content"].strip()
         
         # Clean up JSON response
         if result.startswith("```"):
@@ -531,20 +525,14 @@ Return as JSON:
 Return ONLY valid JSON:"""
 
     try:
-        client = openai.AzureOpenAI(
-            api_key=AZURE_OPENAI_KEY,
-            api_version="2024-02-01",
-            azure_endpoint=AZURE_OPENAI_ENDPOINT
-        )
-        
-        response = client.chat.completions.create(
-            model=AZURE_OPENAI_DEPLOYMENT,
+        response = openai.ChatCompletion.create(
+            engine=AZURE_OPENAI_DEPLOYMENT,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=4000
         )
         
-        result = response.choices[0].message.content.strip()
+        result = response.choices[0].message["content"].strip()
         
         # Clean up response
         if result.startswith("```"):

@@ -273,17 +273,24 @@ def extract_board_names(text):
     
     prompt = f"""Look at this switchboard/switchgear quote and identify ALL board names.
 
-Boards are typically labeled with names like:
-- "UL891 Switchboard"
-- "UL1558 Switchgear" 
-- "Main Distribution Switchboard"
-- "SlimVAC Metal Enclosed Switchgear"
-- etc.
+WHAT COUNTS AS A BOARD:
+- Contains "switchboard", "switchgear", or "substation" in the name
+- Has sections listed underneath it (Section 101, Section 102, etc.)
+- Examples: "UL891 Switchboard", "12kV SlimVAC Metal Enclosed Main Switchgear", "Substation 1 – 1500kVA"
 
-Look for bold headers or titles that contain "switchboard", "switchgear", or similar.
+WHAT IS NOT A BOARD (do NOT include):
+- "Transformer Section" - this is a component, not a board
+- "Factory Testing and Services" - this is a service
+- "Included Accessories" - this is a list of extras
+- Any section that doesn't have Section numbers underneath it
 
 QUOTE TEXT:
-{text[:40000]}
+{text[:50000]}
+
+Return ONLY a JSON array of the ACTUAL board names found (should typically be 2-10 boards):
+["Board Name 1", "Board Name 2", "Board Name 3"]
+
+Return ONLY the JSON array, nothing else:
 
 Return ONLY a JSON array of board names found:
 ["Board Name 1", "Board Name 2", "Board Name 3"]

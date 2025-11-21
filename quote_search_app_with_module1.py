@@ -50,14 +50,29 @@ openai.api_version = "2024-02-01"
 
 def get_blob_client():
     """Get Azure Blob client for memory storage"""
-    if not BLOB_AVAILABLE or not AZURE_STORAGE_CONNECTION_STRING:
+    if not BLOB_AVAILABLE:
+        st.error("❌ Azure Blob Storage library not installed. Run: pip install azure-storage-blob")
         return None
+    
+    if not AZURE_STORAGE_CONNECTION_STRING:
+        st.error("❌ AZURE_STORAGE_CONNECTION_STRING not set in secrets")
+        return None
+    
     try:
         blob_service = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
         container_client = blob_service.get_container_client(MEMORY_CONTAINER)
+        
+        # Create container if it doesn't exist
+        try:
+            container_client.create_container()
+            st.info(f"Created container: {MEMORY_CONTAINER}")
+        except Exception as ce:
+            # Container already exists - this is fine
+            pass
+        
         return container_client.get_blob_client(MEMORY_BLOB_NAME)
     except Exception as e:
-        st.warning(f"Blob connection error: {e}")
+        st.error(f"❌ Blob connection error: {e}")
         return None
 
 def load_memory():
@@ -69,20 +84,23 @@ def load_memory():
     try:
         data = blob_client.download_blob().readall()
         return json.loads(data)
-    except:
+    except Exception as e:
+        # File doesn't exist yet - return empty structure
         return {"patterns": [], "quotes": {}}
 
 def save_memory(memory):
     """Save patterns to Azure Blob Storage"""
     blob_client = get_blob_client()
     if not blob_client:
+        st.error("❌ Could not get blob client - memory not saved")
         return False
     
     try:
         blob_client.upload_blob(json.dumps(memory, indent=2), overwrite=True)
+        st.success(f"✅ Memory saved! ({len(memory.get('quotes', {}))} quotes)")
         return True
     except Exception as e:
-        st.error(f"Error saving memory: {e}")
+        st.error(f"❌ Error saving memory: {e}")
         return False
 
 def store_quote_patterns(quote_number, boards_data):
@@ -92,12 +110,17 @@ def store_quote_patterns(quote_number, boards_data):
     # Clean quote number for matching
     quote_key = quote_number.strip().upper()
     
+    st.info(f"📝 Storing quote: {quote_key}")
+    
     # Store quote reference
     memory["quotes"][quote_key] = {
         "processed_at": datetime.now().isoformat(),
         "original_quote_number": quote_number,
         "boards": []
     }
+    
+    boards_stored = 0
+    sections_stored = 0
     
     for board in boards_data:
         board_name = board.get("board_name", "Unknown")
@@ -127,6 +150,7 @@ def store_quote_patterns(quote_number, boards_data):
                 "depth": section.get("depth"),
                 "box_number": box_result.get("box_number")
             })
+            sections_stored += 1
         
         board_record = {
             "board_name": board_name,
@@ -135,6 +159,9 @@ def store_quote_patterns(quote_number, boards_data):
         }
         
         memory["quotes"][quote_key]["boards"].append(board_record)
+        boards_stored += 1
+    
+    st.info(f"📦 Prepared: {boards_stored} boards, {sections_stored} sections")
     
     if save_memory(memory):
         return len(memory["quotes"])
@@ -250,7 +277,7 @@ Return ONLY the JSON:"""
         return None
 
 def process_order(text):
-    """Process an order and find matching patterns from memory"""
+    """Process an order and find matching patterns from memory by SPECS"""
     
     # Extract order info
     order_info = extract_order_info(text)
@@ -260,34 +287,100 @@ def process_order(text):
     result = {
         "order_info": order_info,
         "match_method": None,
-        "quote_data": None,
+        "matches": [],
         "box_numbers": []
     }
     
-    # Try to match by quote reference
-    quote_ref = order_info.get("quote_reference")
-    if quote_ref:
-        quote_data = find_quote_in_memory(quote_ref)
-        if quote_data:
-            result["match_method"] = "quote_reference"
-            result["matched_quote"] = quote_ref
-            result["quote_data"] = quote_data
-            
-            # Extract all box numbers from the quote
-            for board in quote_data.get("boards", []):
-                for section in board.get("sections", []):
-                    result["box_numbers"].append({
-                        "board": board.get("board_name"),
-                        "section": section.get("section_id"),
-                        "dimensions": f"{section.get('height')}×{section.get('width')}×{section.get('depth')}",
-                        "box_number": section.get("box_number")
-                    })
-            
-            return result
+    # Get specs from order
+    order_specs = order_info.get("specs", {})
     
-    # No match found
-    result["match_method"] = "no_match"
-    result["message"] = f"Quote '{quote_ref}' not found in memory. Process the quote first to learn its patterns."
+    # Search memory for matching specs
+    memory = load_memory()
+    
+    matches = []
+    for quote_num, quote_data in memory.get("quotes", {}).items():
+        for board in quote_data.get("boards", []):
+            board_specs = board.get("specs", {})
+            
+            # Calculate match score
+            score = 0
+            match_details = []
+            
+            # UL Type (must match)
+            if order_specs.get("ul_type") and board_specs.get("ul_type"):
+                if order_specs["ul_type"].upper() in board_specs["ul_type"].upper() or \
+                   board_specs["ul_type"].upper() in order_specs["ul_type"].upper():
+                    score += 30
+                    match_details.append(f"UL Type: {board_specs['ul_type']}")
+            
+            # Voltage (must match)
+            if order_specs.get("voltage") and board_specs.get("voltage"):
+                order_v = order_specs["voltage"].replace(" ", "").upper()
+                board_v = str(board_specs["voltage"]).replace(" ", "").upper()
+                if order_v == board_v or order_v in board_v or board_v in order_v:
+                    score += 25
+                    match_details.append(f"Voltage: {board_specs['voltage']}")
+            
+            # Amperage
+            if order_specs.get("amperage") and board_specs.get("amperage"):
+                order_a = order_specs["amperage"].replace(" ", "").upper()
+                board_a = str(board_specs["amperage"]).replace(" ", "").upper()
+                if order_a == board_a:
+                    score += 20
+                    match_details.append(f"Amperage: {board_specs['amperage']}")
+            
+            # NEMA Type
+            if order_specs.get("nema_type") and board_specs.get("nema_type"):
+                order_n = order_specs["nema_type"].replace(" ", "").upper()
+                board_n = str(board_specs["nema_type"]).replace(" ", "").upper()
+                if order_n in board_n or board_n in order_n:
+                    score += 10
+                    match_details.append(f"NEMA: {board_specs['nema_type']}")
+            
+            # Seismic
+            order_seismic = order_specs.get("seismic", False)
+            board_seismic = board_specs.get("seismic", False)
+            if order_seismic == board_seismic:
+                score += 10
+                match_details.append(f"Seismic: {'Yes' if board_seismic else 'No'}")
+            
+            # Section count
+            if order_specs.get("section_count") and board_specs.get("section_count"):
+                if order_specs["section_count"] == board_specs["section_count"]:
+                    score += 5
+                    match_details.append(f"Sections: {board_specs['section_count']}")
+            
+            # If score is above threshold, it's a match
+            if score >= 50:  # At least UL + Voltage match
+                matches.append({
+                    "score": score,
+                    "from_quote": quote_num,
+                    "board_name": board.get("board_name"),
+                    "board_specs": board_specs,
+                    "match_details": match_details,
+                    "sections": board.get("sections", [])
+                })
+    
+    # Sort by score (best match first)
+    matches.sort(key=lambda x: x["score"], reverse=True)
+    
+    if matches:
+        result["match_method"] = "specs_match"
+        result["matches"] = matches
+        
+        # Use best match for box numbers
+        best_match = matches[0]
+        result["best_match"] = best_match
+        
+        for section in best_match.get("sections", []):
+            result["box_numbers"].append({
+                "section": section.get("section_id"),
+                "dimensions": f"{section.get('height')}×{section.get('width')}×{section.get('depth')}",
+                "box_number": section.get("box_number")
+            })
+    else:
+        result["match_method"] = "no_match"
+        result["message"] = "No matching board specs found in memory. Process more quotes to build the knowledge base."
     
     return result
 
@@ -1160,47 +1253,93 @@ else:
             with col1:
                 st.markdown(f"**Job Number:** {order_info.get('job_number', 'N/A')}")
                 st.markdown(f"**Customer:** {order_info.get('customer', 'N/A')}")
-                st.markdown(f"**Quote Reference:** {order_info.get('quote_reference', 'N/A')}")
-            with col2:
                 st.markdown(f"**Quantity:** {order_info.get('quantity', 'N/A')}")
-                specs = order_info.get('specs', {})
+            
+            specs = order_info.get('specs', {})
+            with col2:
                 st.markdown(f"**UL Type:** {specs.get('ul_type', 'N/A')}")
-                st.markdown(f"**Sections:** {specs.get('section_count', 'N/A')}")
+                st.markdown(f"**Voltage:** {specs.get('voltage', 'N/A')}")
+                st.markdown(f"**Amperage:** {specs.get('amperage', 'N/A')}")
+            
+            # Show extracted specs
+            st.markdown("#### 🔍 Specs Extracted from Order")
+            specs_cols = st.columns(6)
+            with specs_cols[0]:
+                st.markdown(f"**UL Type**<br>{specs.get('ul_type', 'N/A')}", unsafe_allow_html=True)
+            with specs_cols[1]:
+                st.markdown(f"**Voltage**<br>{specs.get('voltage', 'N/A')}", unsafe_allow_html=True)
+            with specs_cols[2]:
+                st.markdown(f"**Amperage**<br>{specs.get('amperage', 'N/A')}", unsafe_allow_html=True)
+            with specs_cols[3]:
+                st.markdown(f"**NEMA**<br>{specs.get('nema_type', 'N/A')}", unsafe_allow_html=True)
+            with specs_cols[4]:
+                st.markdown(f"**Seismic**<br>{'Yes' if specs.get('seismic') else 'No'}", unsafe_allow_html=True)
+            with specs_cols[5]:
+                st.markdown(f"**Sections**<br>{specs.get('section_count', 'N/A')}", unsafe_allow_html=True)
             
             st.markdown("---")
             
             # Show match results
-            if result.get("match_method") == "quote_reference":
-                st.success(f"✅ Found match! Quote: {result.get('matched_quote')}")
+            if result.get("match_method") == "specs_match":
+                best_match = result.get("best_match", {})
                 
-                st.markdown("### 📋 Box Numbers from Quote")
+                st.success(f"✅ Found matching board! Score: {best_match.get('score', 0)}/100")
+                
+                # Show what matched
+                st.markdown("**Matched on:** " + " • ".join(best_match.get("match_details", [])))
+                st.markdown(f"**Source Board:** {best_match.get('board_name', 'Unknown')}")
+                st.markdown(f"**From Quote:** {best_match.get('from_quote', 'Unknown')}")
+                
+                st.markdown("### 📋 Box Numbers")
                 
                 box_numbers = result.get("box_numbers", [])
                 if box_numbers:
                     for bn in box_numbers:
                         st.markdown(f"""
                         <div style="background: #1a2e1a; border: 1px solid #2d5a2d; border-radius: 8px; padding: 1rem; margin: 0.5rem 0;">
-                            <div style="color: #4ade80; font-weight: 600;">{bn.get('board', 'Unknown Board')}</div>
-                            <div style="color: #888; font-size: 0.9rem;">{bn.get('section', 'Unknown')} • {bn.get('dimensions', '')}</div>
-                            <div style="color: #fff; font-size: 1.2rem; font-family: monospace; margin-top: 0.5rem;">{bn.get('box_number', 'N/A')}</div>
+                            <div style="color: #4ade80; font-weight: 600;">{bn.get('section', 'Unknown Section')}</div>
+                            <div style="color: #888; font-size: 0.9rem;">Dimensions: {bn.get('dimensions', 'N/A')}</div>
+                            <div style="color: #fff; font-size: 1.3rem; font-family: monospace; margin-top: 0.5rem;">{bn.get('box_number', 'N/A')}</div>
                         </div>
                         """, unsafe_allow_html=True)
                     
                     # Summary table
                     st.markdown("### Summary")
-                    summary = [{"Board": bn.get("board"), "Section": bn.get("section"), "Box Number": bn.get("box_number")} for bn in box_numbers]
+                    summary = [{"Section": bn.get("section"), "Dimensions": bn.get("dimensions"), "Box Number": bn.get("box_number")} for bn in box_numbers]
                     st.table(summary)
-                else:
-                    st.warning("Quote found but no box numbers stored.")
+                
+                # Show other matches
+                other_matches = result.get("matches", [])[1:5]  # Next 4 matches
+                if other_matches:
+                    with st.expander("Other Potential Matches"):
+                        for match in other_matches:
+                            st.markdown(f"**{match.get('board_name')}** (Score: {match.get('score')}) - From: {match.get('from_quote')}")
             
             elif result.get("match_method") == "no_match":
-                st.error(f"❌ {result.get('message', 'No match found')}")
-                st.info("💡 **Tip:** Process the referenced quote first, then try the order again.")
+                st.error(f"❌ {result.get('message', 'No matching specs found in memory')}")
+                st.info("💡 **Tip:** Process more quotes to build the knowledge base. The system learns from every quote you process.")
     
     # ========== MEMORY VIEW MODE ==========
     elif mode == "🧠 View Memory":
         st.markdown("### 🧠 Persistent Memory")
         
+        # Connection status
+        st.markdown("#### Connection Status")
+        col1, col2 = st.columns(2)
+        with col1:
+            if BLOB_AVAILABLE:
+                st.success("✅ Azure Blob library installed")
+            else:
+                st.error("❌ Azure Blob library NOT installed")
+        with col2:
+            if AZURE_STORAGE_CONNECTION_STRING:
+                st.success("✅ Connection string configured")
+            else:
+                st.error("❌ Connection string NOT configured")
+        
+        st.markdown("---")
+        
+        # Stats
         stats = get_memory_stats()
         
         col1, col2, col3 = st.columns(3)
@@ -1232,10 +1371,23 @@ else:
                 st.success(f"Found! Processed: {found.get('processed_at', 'Unknown')}")
                 for board in found.get("boards", []):
                     st.markdown(f"**{board.get('board_name')}**")
+                    st.markdown(f"Specs: {board.get('specs', {})}")
                     for section in board.get("sections", []):
                         st.markdown(f"  - {section.get('section_id')}: `{section.get('box_number')}`")
             else:
                 st.error("Quote not found in memory")
+        
+        # Test connection button
+        st.markdown("---")
+        if st.button("🧪 Test Blob Connection"):
+            blob_client = get_blob_client()
+            if blob_client:
+                try:
+                    # Try to read existing data
+                    memory = load_memory()
+                    st.success(f"✅ Connection works! Found {len(memory.get('quotes', {}))} quotes in memory.")
+                except Exception as e:
+                    st.error(f"❌ Test failed: {e}")
     
     # Footer
     st.markdown("""

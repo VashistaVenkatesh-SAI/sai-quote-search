@@ -959,7 +959,7 @@ def check_auth(username, password):
 def login_page():
     st.markdown("""
     <div style="text-align: center; margin-bottom: 2rem;">
-        <h1 style="color: #fff; font-size: 2.5rem;">Pulse</h1>
+        <h1 style="color: #fff; font-size: 2.5rem;">Pulse AI</h1>
         <p style="color: #6b6b6b;">Box Number Generator</p>
     </div>
     """, unsafe_allow_html=True)
@@ -982,7 +982,7 @@ def login_page():
 # ============================================
 
 st.set_page_config(
-    page_title="Pulse",
+    page_title="Pulse AI",
     page_icon="V",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -1062,7 +1062,7 @@ else:
     # Logo
     st.markdown("""
     <div style="text-align: center; margin: 2rem 0;">
-        <h1 style="color: #fff; font-size: 2.5rem; margin: 0;">Pulse</h1>
+        <h1 style="color: #fff; font-size: 2.5rem; margin: 0;">Pulse AI</h1>
         <p style="color: #6b6b6b; font-size: 0.9rem;">Box Number Generator v2.2</p>
     </div>
     """, unsafe_allow_html=True)
@@ -1392,6 +1392,6 @@ else:
     # Footer
     st.markdown("""
     <div style="text-align: center; color: #6b6b6b; font-size: 0.8rem; padding: 2rem 0;">
-        SAI Advanced Power Solutions • Pulse 2.2
+        SAI Advanced Power Solutions • Powerd By Baby Goats
     </div>
     """, unsafe_allow_html=True)

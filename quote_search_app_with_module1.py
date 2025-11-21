@@ -273,12 +273,23 @@ def extract_quote_data(text):
     
     prompt = f"""Analyze this switchboard/switchgear quote and extract structured information.
 
+IMPORTANT RULES:
+1. FIRST identify all BOARDS in the quote. Boards are separated by bolded lines with "switchboard" or "switchgear" in the name.
+2. Each board has a NAME (e.g., "UL891 Switchboard", "Main Distribution Switchboard", "UL1558 Switchgear")
+3. Each board has SECTIONS underneath it (e.g., Section 101, Section 102, etc.)
+4. Board-level features are shared across all sections in that board
+
 QUOTE TEXT:
 {text}
 
-Extract the following and return as JSON:
+Extract and return as JSON:
 
-1. BOARD-LEVEL FEATURES (shared across all sections):
+1. For EACH BOARD found, extract:
+   - board_name: The name/title of the board (e.g., "UL891 Switchboard")
+   - board_features: Shared features for this board
+   - sections: List of sections belonging to this board
+
+2. BOARD FEATURES (shared across all sections in a board):
    - ul_type: UL listing (e.g., "UL891", "UL1558")
    - phase: Phase configuration (e.g., "3 phase", "3PH")
    - wires: Wire count (e.g., "4 wire", "4W")
@@ -287,47 +298,52 @@ Extract the following and return as JSON:
    - ka_rating: Short circuit rating (e.g., "65kAIC@480V")
    - nema_type: NEMA enclosure (e.g., "NEMA 3R")
    - paint_finish: Paint/finish (e.g., "ANSI 61 gray")
-   - seismic_inclusions: Seismic requirements (e.g., "seismic bracing", or null if none)
+   - seismic_inclusions: Seismic requirements (e.g., "seismic bracing", or null)
    - cable_entry: Cable entry type (e.g., "top or bottom cable entry")
    - access_type: Access type (e.g., "front and rear access")
 
-2. SECTIONS: For each section, extract:
-   - identifier: Section ID (e.g., "Section 101", "Section 102")
-   - height: Height in inches (number only, e.g., 72)
-   - width: Width in inches (number only, e.g., 42)
-   - depth: Depth in inches (number only, e.g., 56)
-   - breaker_manufacturer: Breaker brand (e.g., "ABB", "Schneider", or null if no breaker)
-   - breaker_type: Breaker model (e.g., "Emax2", "TMAX XT", "Masterpact NW")
+3. For EACH SECTION within a board:
+   - identifier: Section ID (e.g., "Section 101")
+   - height: Height in inches (number only)
+   - width: Width in inches (number only)
+   - depth: Depth in inches (number only)
+   - breaker_manufacturer: Breaker brand (e.g., "ABB", "Schneider", or null)
+   - breaker_type: Breaker model (e.g., "Emax2", "TMAX XT")
    - mounting_type: Mounting (e.g., "Fixed", "Drawout", or null)
-   - hardware: Hardware type if mentioned (e.g., "Locknut", "Belleville", or null)
+   - hardware: Hardware type if mentioned (or null)
    - description: Brief description of section contents
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON in this format:
 {{
-    "board_features": {{
-        "ul_type": "...",
-        "phase": "...",
-        "wires": "...",
-        "voltage": "...",
-        "main_bus_amperage": "...",
-        "ka_rating": "...",
-        "nema_type": "...",
-        "paint_finish": "...",
-        "seismic_inclusions": "...",
-        "cable_entry": "...",
-        "access_type": "..."
-    }},
-    "sections": [
+    "boards": [
         {{
-            "identifier": "Section 101",
-            "height": 72,
-            "width": 42,
-            "depth": 56,
-            "breaker_manufacturer": "ABB",
-            "breaker_type": "Emax2",
-            "mounting_type": "Fixed",
-            "hardware": null,
-            "description": "Main circuit breaker section"
+            "board_name": "UL891 Switchboard",
+            "board_features": {{
+                "ul_type": "UL891",
+                "phase": "3 phase",
+                "wires": "4 wire",
+                "voltage": "480Y/277V",
+                "main_bus_amperage": "2000A",
+                "ka_rating": "65kAIC@480V",
+                "nema_type": "NEMA 3R",
+                "paint_finish": "ANSI 61 gray",
+                "seismic_inclusions": "seismic bracing",
+                "cable_entry": "top or bottom cable entry",
+                "access_type": "front and rear access"
+            }},
+            "sections": [
+                {{
+                    "identifier": "Section 101",
+                    "height": 72,
+                    "width": 42,
+                    "depth": 56,
+                    "breaker_manufacturer": "ABB",
+                    "breaker_type": "Emax2",
+                    "mounting_type": "Fixed",
+                    "hardware": null,
+                    "description": "Main circuit breaker section"
+                }}
+            ]
         }}
     ]
 }}
@@ -587,22 +603,32 @@ else:
                     quote_data = extract_quote_data(text)
                 
                 if quote_data:
-                    board_features = quote_data.get("board_features", {})
-                    sections = quote_data.get("sections", [])
+                    boards = quote_data.get("boards", [])
                     
-                    # Generate box numbers for each section
-                    results = []
-                    for section in sections:
-                        box_result = generate_box_number(section, board_features, kb)
-                        results.append({
-                            "section": section,
-                            "box_result": box_result
+                    # Generate box numbers for each section in each board
+                    all_boards = []
+                    for board in boards:
+                        board_name = board.get("board_name", "Unknown Board")
+                        board_features = board.get("board_features", {})
+                        sections = board.get("sections", [])
+                        
+                        section_results = []
+                        for section in sections:
+                            box_result = generate_box_number(section, board_features, kb)
+                            section_results.append({
+                                "section": section,
+                                "box_result": box_result
+                            })
+                        
+                        all_boards.append({
+                            "board_name": board_name,
+                            "board_features": board_features,
+                            "sections": section_results
                         })
                     
                     st.session_state.results = {
                         "filename": uploaded_file.name,
-                        "board_features": board_features,
-                        "sections": results
+                        "boards": all_boards
                     }
                     st.rerun()
                 else:
@@ -615,36 +641,67 @@ else:
         results = st.session_state.results
         
         st.markdown(f"### 📄 {results['filename']}")
-        st.markdown(f"**{len(results['sections'])} sections found**")
         
-        # Board features
-        display_board_features(results['board_features'])
+        total_sections = sum(len(b['sections']) for b in results['boards'])
+        st.markdown(f"**{len(results['boards'])} board(s), {total_sections} section(s) found**")
         
+        # Loop through each board
+        for board_idx, board in enumerate(results['boards']):
+            board_name = board.get('board_name', 'Unknown Board')
+            board_features = board.get('board_features', {})
+            sections = board.get('sections', [])
+            
+            # Board header
+            st.markdown(f"""
+            <div style="background: #252525; border-left: 4px solid #3b82f6; padding: 1rem 1.5rem; margin: 1.5rem 0 1rem 0; border-radius: 0 8px 8px 0;">
+                <div style="font-size: 1.3rem; font-weight: 700; color: #3b82f6;">📋 {board_name}</div>
+                <div style="color: #888; font-size: 0.85rem;">{len(sections)} section(s)</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Board features
+            display_board_features(board_features)
+            
+            st.markdown("#### 📦 Sections")
+            
+            # Each section in this board
+            for item in sections:
+                display_section_box_number(item['section'], item['box_result'])
+            
+            # Summary table for this board
+            st.markdown(f"**{board_name} - Summary**")
+            
+            summary_data = []
+            for item in sections:
+                summary_data.append({
+                    "Section": item['section'].get('identifier', 'Unknown'),
+                    "Dimensions": f"{item['section'].get('height', '?')}×{item['section'].get('width', '?')}×{item['section'].get('depth', '?')}",
+                    "Box Number": item['box_result'].get('box_number', 'ERROR')
+                })
+            
+            st.table(summary_data)
+            
+            if board_idx < len(results['boards']) - 1:
+                st.markdown("---")
+        
+        # Export all button
         st.markdown("---")
-        st.markdown("### 📦 Section Box Numbers")
-        
-        # Each section
-        for item in results['sections']:
-            display_section_box_number(item['section'], item['box_result'])
-        
-        # Summary table
-        st.markdown("---")
-        st.markdown("### 📋 Summary")
-        
-        summary_data = []
-        for item in results['sections']:
-            summary_data.append({
-                "Section": item['section'].get('identifier', 'Unknown'),
-                "Dimensions": f"{item['section'].get('height', '?')}×{item['section'].get('width', '?')}×{item['section'].get('depth', '?')}",
-                "Box Number": item['box_result'].get('box_number', 'ERROR')
-            })
-        
-        st.table(summary_data)
-        
-        # Export button
-        if st.button("Export to CSV"):
+        if st.button("Export All to CSV"):
             import pandas as pd
-            df = pd.DataFrame(summary_data)
+            all_data = []
+            for board in results['boards']:
+                board_name = board.get('board_name', 'Unknown')
+                for item in board['sections']:
+                    all_data.append({
+                        "Board": board_name,
+                        "Section": item['section'].get('identifier', 'Unknown'),
+                        "Height": item['section'].get('height', '?'),
+                        "Width": item['section'].get('width', '?'),
+                        "Depth": item['section'].get('depth', '?'),
+                        "Box Number": item['box_result'].get('box_number', 'ERROR')
+                    })
+            
+            df = pd.DataFrame(all_data)
             csv = df.to_csv(index=False)
             st.download_button(
                 "Download CSV",

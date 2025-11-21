@@ -91,9 +91,14 @@ def get_front_cornerpost_code(section_data, has_seismic, kb):
     if not kb:
         return "S"
     
-    breaker_mfr = section_data.get("breaker_manufacturer", "").upper()
-    mounting = section_data.get("mounting_type", "").upper()
-    has_breaker = bool(breaker_mfr and breaker_mfr not in ["NONE", "N/A", ""])
+    # Safely get values, handle None
+    breaker_mfr = section_data.get("breaker_manufacturer") or ""
+    breaker_mfr = str(breaker_mfr).upper()
+    
+    mounting = section_data.get("mounting_type") or ""
+    mounting = str(mounting).upper()
+    
+    has_breaker = bool(breaker_mfr and breaker_mfr not in ["NONE", "N/A", "", "NULL"])
     
     # No breaker mentioned
     if not has_breaker:
@@ -143,7 +148,7 @@ def get_hardware_code(hardware_text):
     if not hardware_text:
         return "L"  # Default to Locknut
     
-    hw_upper = hardware_text.upper()
+    hw_upper = str(hardware_text).upper()
     if "BELLEVILLE" in hw_upper:
         return "B"
     elif "LOCKNUT" in hw_upper or "LOCK" in hw_upper:
@@ -160,7 +165,7 @@ def check_seismic(text):
     if not text:
         return False
     
-    text_upper = text.upper()
+    text_upper = str(text).upper()
     seismic_keywords = ["SEISMIC", "IBC", "SEISMIC BRACING", "SEISMIC ANCHORING", "SEISMIC ZONE"]
     
     for kw in seismic_keywords:
@@ -173,7 +178,7 @@ def get_finish_code(finish_text, kb):
     if not kb or not finish_text:
         return "99"
     
-    finish_upper = finish_text.upper()
+    finish_upper = str(finish_text).upper()
     finish_matching = kb.get("finish_matching", {}).get("matches", {})
     
     for keyword, code in finish_matching.items():

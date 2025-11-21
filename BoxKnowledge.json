@@ -1,6 +1,6 @@
 {
-  "version": "1.0",
-  "last_updated": "2025-01-01",
+  "version": "2.0",
+  "last_updated": "2025-05-21",
   
   "quote_parsing": {
     "board_identification": {
@@ -38,7 +38,7 @@
   "section_characteristics": {
     "description": "Per-section unique characteristics",
     "breakers": {
-      "attributes": ["Frame type", "Manufacturer", "Frame amperage"],
+      "attributes": ["Frame type", "Manufacturer", "Frame amperage", "Mounting type (Fixed/Drawout)"],
       "note": "Some quotes list breakers as 'type' - check for breaker type references before board descriptions"
     },
     "dimensions": {
@@ -97,19 +97,20 @@
   
   "box_number_format": {
     "description": "Module 1 box number construction",
-    "example": "APBXBLGSSLX-G01-02",
+    "example": "APBXDLHDDLX-G01-02",
     "structure": [
-      {"position": "1-4", "value": "APBX", "description": "Static prefix"},
-      {"position": "5", "value": "Variable", "description": "Height code"},
-      {"position": "6", "value": "Variable", "description": "Width code"},
-      {"position": "7", "value": "Variable", "description": "Depth code"},
-      {"position": "8", "value": "Variable", "description": "Front cornerpost type"},
-      {"position": "9", "value": "Variable", "description": "Front cornerpost type (duplicate)"},
-      {"position": "10", "value": "Variable", "description": "First character hardware"},
-      {"position": "11", "value": "Variable", "description": "If T8 equals 'Y', returns 'S', else 'X'"},
-      {"position": "12-16", "value": "-G01-", "description": "Static middle"},
-      {"position": "17-18", "value": "Variable", "description": "Paint/Finish code"}
-    ]
+      {"position": "1-4", "value": "APBX", "description": "Static prefix - always APBX"},
+      {"position": "5", "field": "height_code", "description": "Height code from dimension_mappings.height"},
+      {"position": "6", "field": "width_code", "description": "Width code from dimension_mappings.width"},
+      {"position": "7", "field": "depth_code", "description": "Depth code from dimension_mappings.depth"},
+      {"position": "8", "field": "front_cornerpost", "description": "Front cornerpost type - see front_cornerpost_logic"},
+      {"position": "9", "field": "front_cornerpost", "description": "Front cornerpost type (same as position 8)"},
+      {"position": "10", "field": "hardware_code", "description": "First letter of hardware type - L for Locknut, B for Belleville"},
+      {"position": "11", "field": "seismic_code", "description": "S if seismic, X if not seismic"},
+      {"position": "12-16", "value": "-G01-", "description": "Static middle - always -G01-"},
+      {"position": "17-18", "field": "paint_code", "description": "Paint/Finish code from finish_codes"}
+    ],
+    "assembly_order": "APBX + height + width + depth + front + front + hardware + seismic + -G01- + paint"
   },
   
   "dimension_mappings": {
@@ -155,6 +156,7 @@
       "42": "F",
       "48": "G",
       "54": "H",
+      "56": "Z",
       "60": "J",
       "66": "K",
       "72": "L",
@@ -170,18 +172,111 @@
     }
   },
   
-  "front_cornerpost_types": {
-    "S": "Short",
-    "A": "Sch Fxd w/ Wireway Cut",
-    "B": "Sch DO w/ Wireway Cut",
-    "C": "ABB Fxd w/ Wireway Cut",
-    "D": "ABB DO w/ Wireway Cut",
-    "E": "Sch DO no Cuts",
-    "F": "ABB DO no Cuts",
+  "front_cornerpost_logic": {
+    "description": "Logic to determine front cornerpost code",
+    "decision_tree": [
+      {
+        "condition": "No breaker mentioned in section AND seismic required",
+        "result": "2",
+        "description": "Seismic Short"
+      },
+      {
+        "condition": "No breaker mentioned in section AND no seismic",
+        "result": "S",
+        "description": "Short"
+      },
+      {
+        "condition": "Schneider breaker AND Fixed mounted",
+        "result": "A",
+        "description": "Sch Fxd w/ Wireway Cut"
+      },
+      {
+        "condition": "Schneider breaker AND Drawout",
+        "result": "B",
+        "description": "Sch DO w/ Wireway Cut"
+      },
+      {
+        "condition": "ABB breaker AND Fixed mounted",
+        "result": "C",
+        "description": "ABB Fxd w/ Wireway Cut"
+      },
+      {
+        "condition": "ABB breaker AND Drawout",
+        "result": "D",
+        "description": "ABB DO w/ Wireway Cut"
+      }
+    ],
+    "defaults": {
+      "mounting_if_not_specified": "Fixed",
+      "cornerpost_if_no_breaker_no_seismic": "S",
+      "cornerpost_if_no_breaker_with_seismic": "2"
+    },
+    "breaker_manufacturer_identification": {
+      "ABB": {
+        "keywords": ["ABB", "EMAX", "SACE", "Emax2", "E2", "E4", "E6", "XT", "TMAX XT"],
+        "note": "ABB breakers include EMAX series (E2, E4, E6) and TMAX XT"
+      },
+      "Schneider": {
+        "keywords": ["Schneider", "Square D", "Masterpact", "NW", "NT", "MTZ", "Compact"],
+        "note": "Schneider breakers include Masterpact NW/NT/MTZ series"
+      }
+    },
+    "mounting_type_identification": {
+      "Fixed": {
+        "keywords": ["Fixed", "Fixed Mounted", "Fxd", "fixed mounted"],
+        "default": true
+      },
+      "Drawout": {
+        "keywords": ["Drawout", "Draw-out", "DO", "Draw Out", "Withdrawable"]
+      }
+    }
+  },
+  
+  "front_cornerpost_codes": {
+    "S": "Short (no breaker, no seismic)",
+    "2": "Seismic Short (no breaker, with seismic)",
+    "A": "Schneider Fixed w/ Wireway Cut",
+    "B": "Schneider Drawout w/ Wireway Cut",
+    "C": "ABB Fixed w/ Wireway Cut",
+    "D": "ABB Drawout w/ Wireway Cut",
+    "E": "Schneider Drawout no Cuts",
+    "F": "ABB Drawout no Cuts",
     "1": "12\" Stretch w/ Ground",
-    "2": "Seismic Short",
     "Z": "Custom Stretched",
     "-": "N/A"
+  },
+  
+  "hardware_options": {
+    "description": "Hardware type - use first letter as code",
+    "types": {
+      "L": {
+        "name": "Locknut",
+        "keywords": ["Locknut", "Lock nut", "Lock-nut"]
+      },
+      "B": {
+        "name": "Belleville",
+        "keywords": ["Belleville", "Belleville washer"]
+      }
+    },
+    "default": "L",
+    "note": "If hardware not specified, default to L (Locknut)"
+  },
+  
+  "seismic_logic": {
+    "description": "Determine seismic code for position 11",
+    "codes": {
+      "S": "Seismic required",
+      "X": "No seismic / Not seismic"
+    },
+    "keywords_for_seismic": [
+      "seismic",
+      "seismic bracing",
+      "seismic anchoring",
+      "seismic zone",
+      "IBC",
+      "seismic certified"
+    ],
+    "default": "X"
   },
   
   "finish_codes": {
@@ -216,6 +311,26 @@
     "99": "Other"
   },
   
+  "finish_matching": {
+    "description": "Keywords to match finish from quote text",
+    "matches": {
+      "ANSI 49": "01",
+      "ANSI 61": "02",
+      "ANSI61": "02",
+      "ANSI49": "01",
+      "RAL 7035": "15",
+      "RAL 9003": "26",
+      "RAL 7021": "27",
+      "RAL 5012": "10",
+      "RAL 5017": "23",
+      "GRAPHITE": "08",
+      "RAVEN": "04",
+      "TOSHIBA": "05",
+      "NO PAINT": "28"
+    },
+    "default": "99"
+  },
+  
   "breaker_identification": {
     "MCCB": {
       "full_name": "Molded Case Circuit Breakers",
@@ -223,9 +338,62 @@
       "indicates": "S1 type section/board"
     },
     "ICCB": {
-      "full_name": "Insulated Case Circuit Breakers",
+      "full_name": "Insulated Case Circuit Breakers", 
       "brand_names": ["EMAX", "NW"],
       "indicates": "S3 type section/board"
+    }
+  },
+  
+  "box_number_examples": {
+    "example_1": {
+      "input": {
+        "height": 72,
+        "width": 42,
+        "depth": 56,
+        "breaker_manufacturer": "ABB",
+        "mounting": "Fixed",
+        "hardware": "Locknut",
+        "seismic": true,
+        "finish": "ANSI 61 gray"
+      },
+      "output": "APBXDLZCCLS-G01-02",
+      "breakdown": {
+        "APBX": "Static prefix",
+        "D": "Height 72",
+        "L": "Width 42",
+        "Z": "Depth 56 (custom)",
+        "C": "ABB Fixed",
+        "C": "ABB Fixed (repeated)",
+        "L": "Locknut",
+        "S": "Seismic",
+        "-G01-": "Static middle",
+        "02": "ANSI 61 grey"
+      }
+    },
+    "example_2": {
+      "input": {
+        "height": 90,
+        "width": 32,
+        "depth": 36,
+        "breaker_manufacturer": null,
+        "mounting": null,
+        "hardware": "Belleville",
+        "seismic": false,
+        "finish": "RAL 7035"
+      },
+      "output": "APBXBGESSBX-G01-15",
+      "breakdown": {
+        "APBX": "Static prefix",
+        "B": "Height 90",
+        "G": "Width 32",
+        "E": "Depth 36",
+        "S": "Short (no breaker)",
+        "S": "Short (repeated)",
+        "B": "Belleville",
+        "X": "No seismic",
+        "-G01-": "Static middle",
+        "15": "RAL 7035"
+      }
     }
   }
 }

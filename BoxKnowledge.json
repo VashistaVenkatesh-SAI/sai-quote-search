@@ -1,0 +1,231 @@
+{
+  "version": "1.0",
+  "last_updated": "2025-01-01",
+  
+  "quote_parsing": {
+    "board_identification": {
+      "description": "Boards are separated by a bolded line with 'switchboard' or 'switchgear' in the name",
+      "contains": "Short description under bolded title, ends before section descriptions"
+    },
+    "section_identification": {
+      "description": "Sections are not bolded but underlined with a number",
+      "contains": ["Height", "Width", "Depth (in inches)", "Short description of what's provided"]
+    }
+  },
+  
+  "shared_board_characteristics": {
+    "description": "These characteristics are consistent across all sections in a board",
+    "features": [
+      "UL Type (891, 1558)",
+      "Board Phase",
+      "Board Wires",
+      "Voltage",
+      "Main Bus Amperage",
+      "kA Rating",
+      "NEMA type",
+      "Paint/Finish Type",
+      "Seismic Inclusions",
+      "Wireway/Trolley Track Provisions",
+      "Control Access type",
+      "Cabling Access/Entry type"
+    ],
+    "dimension_rules": {
+      "depth": "Consistent across all sections in a board",
+      "height": "Consistent across all sections in a board"
+    }
+  },
+  
+  "section_characteristics": {
+    "description": "Per-section unique characteristics",
+    "breakers": {
+      "attributes": ["Frame type", "Manufacturer", "Frame amperage"],
+      "note": "Some quotes list breakers as 'type' - check for breaker type references before board descriptions"
+    },
+    "dimensions": {
+      "attributes": ["Height", "Width", "Depth"]
+    },
+    "control_inclusions": {
+      "also_called": "Control Compartment",
+      "common_components": ["SKRU", "SPD", "PQM", "SEL", "CPT", "Relays"]
+    },
+    "section_labels": [
+      "Transition",
+      "Distribution",
+      "Tie",
+      "Control",
+      "Auxiliary",
+      "Pass-Through"
+    ]
+  },
+  
+  "product_line_identification": {
+    "switchgear": {
+      "ul_type": "UL1558",
+      "identifier": "Labelled as UL1558"
+    },
+    "switchboard": {
+      "ul_type": "UL891",
+      "identifier": "Labelled as UL891 or UL891+",
+      "types": {
+        "S1": {
+          "description": "Contains panelboards in each section",
+          "breaker_type": "MCCB (Molded Case Circuit Breakers)",
+          "identifiers": ["MCCB in description", "TMAX breakers", "Masterpact breakers"]
+        },
+        "S2": {
+          "description": "Contains both MCCB and ICCB",
+          "breaker_types": ["MCCB", "ICCB"]
+        },
+        "S3": {
+          "description": "Contains insulated case breakers (ICCB) in each section",
+          "breaker_type": "ICCB (Insulated Case Circuit Breakers)",
+          "identifiers": ["ICCB in description", "EMAX breakers", "NW breakers"]
+        }
+      }
+    },
+    "slimvac": {
+      "description": "Medium voltage boards",
+      "identifier": "Board description contains 'SlimVAC'"
+    }
+  },
+  
+  "section_type_rules": {
+    "UL1558": "Every section is switchgear type",
+    "UL891": "Identify as S1/S2/S3 per section based on breaker types",
+    "SlimVAC": "Every section is SlimVAC type"
+  },
+  
+  "box_number_format": {
+    "description": "Module 1 box number construction",
+    "example": "APBXBLGSSLX-G01-02",
+    "structure": [
+      {"position": "1-4", "value": "APBX", "description": "Static prefix"},
+      {"position": "5", "value": "Variable", "description": "Height code"},
+      {"position": "6", "value": "Variable", "description": "Width code"},
+      {"position": "7", "value": "Variable", "description": "Depth code"},
+      {"position": "8", "value": "Variable", "description": "Front cornerpost type"},
+      {"position": "9", "value": "Variable", "description": "Front cornerpost type (duplicate)"},
+      {"position": "10", "value": "Variable", "description": "First character hardware"},
+      {"position": "11", "value": "Variable", "description": "If T8 equals 'Y', returns 'S', else 'X'"},
+      {"position": "12-16", "value": "-G01-", "description": "Static middle"},
+      {"position": "17-18", "value": "Variable", "description": "Paint/Finish code"}
+    ]
+  },
+  
+  "dimension_mappings": {
+    "height": {
+      "93": "A",
+      "90": "B",
+      "78": "C",
+      "72": "D",
+      "60": "E",
+      "58.5": "F",
+      "81": "G",
+      "CUSTOM": "Z"
+    },
+    "width": {
+      "16": "A",
+      "20": "B",
+      "24": "C",
+      "26": "D",
+      "28": "E",
+      "30": "F",
+      "32": "G",
+      "36": "H",
+      "38": "J",
+      "40": "K",
+      "42": "L",
+      "44": "M",
+      "46": "N",
+      "48": "P",
+      "72": "R",
+      "76": "S",
+      "CUSTOM": "Z"
+    },
+    "width_notes": {
+      "72": "PDU",
+      "76": "PDU"
+    },
+    "depth": {
+      "16": "A",
+      "24": "B",
+      "30": "C",
+      "33": "D",
+      "36": "E",
+      "42": "F",
+      "48": "G",
+      "54": "H",
+      "60": "J",
+      "66": "K",
+      "72": "L",
+      "78": "M",
+      "84": "N",
+      "52": "P",
+      "100": "Q",
+      "CUSTOM": "Z"
+    },
+    "depth_notes": {
+      "52": "PDU",
+      "100": "MV"
+    }
+  },
+  
+  "front_cornerpost_types": {
+    "S": "Short",
+    "A": "Sch Fxd w/ Wireway Cut",
+    "B": "Sch DO w/ Wireway Cut",
+    "C": "ABB Fxd w/ Wireway Cut",
+    "D": "ABB DO w/ Wireway Cut",
+    "E": "Sch DO no Cuts",
+    "F": "ABB DO no Cuts",
+    "1": "12\" Stretch w/ Ground",
+    "2": "Seismic Short",
+    "Z": "Custom Stretched",
+    "-": "N/A"
+  },
+  
+  "finish_codes": {
+    "01": "ANSI 49 GREY",
+    "02": "ANSI 61 GREY",
+    "03": "BLACK",
+    "04": "RAVEN BLACK",
+    "05": "TOSHIBA BLACK",
+    "06": "PO BLUE",
+    "07": "RED BARON",
+    "08": "GRAPHITE GRAY",
+    "09": "SKY WHITE",
+    "10": "RAL 5012 PILLER BLUE TEXTURED",
+    "11": "RAL 9003 SE WHITE HIGH GLOSS",
+    "12": "MUNSEL 5Y7/1 BEIGE",
+    "13": "SILCON GRAY",
+    "14": "CPN BEIGE",
+    "15": "RAL 7035 LIGHT GRAY",
+    "16": "BLACK",
+    "17": "COLA RED",
+    "18": "SAI MV DARK GREY",
+    "19": "BEIGE II",
+    "20": "SKY WHITE",
+    "21": "EL GRAY",
+    "22": "RAL 7021 BLACK GRAY",
+    "23": "RAL 5017 TRAFFIC BLUE",
+    "24": "ACTIVE POWER BLACK",
+    "25": "7B GRAY",
+    "26": "RAL 9003",
+    "27": "RAL 7021",
+    "28": "NO PAINT",
+    "99": "Other"
+  },
+  
+  "breaker_identification": {
+    "MCCB": {
+      "full_name": "Molded Case Circuit Breakers",
+      "brand_names": ["TMAX", "Masterpact"],
+      "indicates": "S1 type section/board"
+    },
+    "ICCB": {
+      "full_name": "Insulated Case Circuit Breakers",
+      "brand_names": ["EMAX", "NW"],
+      "indicates": "S3 type section/board"
+    }
+  }
+}

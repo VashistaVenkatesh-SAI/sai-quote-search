@@ -1,12 +1,14 @@
 """
-Voltrix v2.1 - Box Number Generator
-Extracts section info from quotes and generates box numbers
+Voltrix v2.2 - Box Number Generator with Persistent Memory
+Extracts section info from quotes, generates box numbers, learns patterns
 """
 import streamlit as st
 import openai
 import json
 import re
 import io
+from datetime import datetime
+import uuid
 
 # PDF Processing
 try:
@@ -14,6 +16,13 @@ try:
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
+
+# Azure Blob Storage
+try:
+    from azure.storage.blob import BlobServiceClient
+    BLOB_AVAILABLE = True
+except ImportError:
+    BLOB_AVAILABLE = False
 
 # Configuration - safely load secrets
 def get_secret(key, default=""):
@@ -26,11 +35,261 @@ def get_secret(key, default=""):
 AZURE_OPENAI_ENDPOINT = get_secret("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_KEY = get_secret("AZURE_OPENAI_KEY")
 AZURE_OPENAI_DEPLOYMENT = get_secret("AZURE_OPENAI_DEPLOYMENT")
+AZURE_STORAGE_CONNECTION_STRING = get_secret("AZURE_STORAGE_CONNECTION_STRING")
+MEMORY_CONTAINER = "persistent-memory"
+MEMORY_BLOB_NAME = "voltrix_patterns.json"
 
 openai.api_type = "azure"
 openai.api_key = AZURE_OPENAI_KEY
 openai.api_base = AZURE_OPENAI_ENDPOINT
 openai.api_version = "2024-02-01"
+
+# ============================================
+# PERSISTENT MEMORY (Azure Blob Storage)
+# ============================================
+
+def get_blob_client():
+    """Get Azure Blob client for memory storage"""
+    if not BLOB_AVAILABLE or not AZURE_STORAGE_CONNECTION_STRING:
+        return None
+    try:
+        blob_service = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+        container_client = blob_service.get_container_client(MEMORY_CONTAINER)
+        return container_client.get_blob_client(MEMORY_BLOB_NAME)
+    except Exception as e:
+        st.warning(f"Blob connection error: {e}")
+        return None
+
+def load_memory():
+    """Load patterns from Azure Blob Storage"""
+    blob_client = get_blob_client()
+    if not blob_client:
+        return {"patterns": [], "quotes": {}}
+    
+    try:
+        data = blob_client.download_blob().readall()
+        return json.loads(data)
+    except:
+        return {"patterns": [], "quotes": {}}
+
+def save_memory(memory):
+    """Save patterns to Azure Blob Storage"""
+    blob_client = get_blob_client()
+    if not blob_client:
+        return False
+    
+    try:
+        blob_client.upload_blob(json.dumps(memory, indent=2), overwrite=True)
+        return True
+    except Exception as e:
+        st.error(f"Error saving memory: {e}")
+        return False
+
+def store_quote_patterns(quote_number, boards_data):
+    """Store patterns from a processed quote - board level specs"""
+    memory = load_memory()
+    
+    # Clean quote number for matching
+    quote_key = quote_number.strip().upper()
+    
+    # Store quote reference
+    memory["quotes"][quote_key] = {
+        "processed_at": datetime.now().isoformat(),
+        "original_quote_number": quote_number,
+        "boards": []
+    }
+    
+    for board in boards_data:
+        board_name = board.get("board_name", "Unknown")
+        board_features = board.get("board_features", {})
+        sections = board.get("sections", [])
+        
+        # Extract board-level specs for matching
+        board_specs = {
+            "ul_type": board_features.get("ul_type"),
+            "voltage": board_features.get("voltage"),
+            "amperage": board_features.get("main_bus_amperage"),
+            "nema_type": board_features.get("nema_type"),
+            "paint_finish": board_features.get("paint_finish"),
+            "seismic": check_seismic(str(board_features.get("seismic_inclusions", ""))),
+            "section_count": len(sections)
+        }
+        
+        # Collect all section box numbers
+        section_box_numbers = []
+        for section_item in sections:
+            section = section_item.get("section", {})
+            box_result = section_item.get("box_result", {})
+            section_box_numbers.append({
+                "section_id": section.get("identifier", "Unknown"),
+                "height": section.get("height"),
+                "width": section.get("width"),
+                "depth": section.get("depth"),
+                "box_number": box_result.get("box_number")
+            })
+        
+        board_record = {
+            "board_name": board_name,
+            "specs": board_specs,
+            "sections": section_box_numbers
+        }
+        
+        memory["quotes"][quote_key]["boards"].append(board_record)
+    
+    if save_memory(memory):
+        return len(memory["quotes"])
+    return 0
+
+def find_quote_in_memory(quote_reference):
+    """Find a quote in memory by reference number"""
+    memory = load_memory()
+    
+    if not quote_reference:
+        return None
+    
+    # Clean and normalize
+    search_key = quote_reference.strip().upper()
+    
+    # Try exact match
+    if search_key in memory.get("quotes", {}):
+        return memory["quotes"][search_key]
+    
+    # Try without revision (e.g., "250321SAI02-R04" -> "250321SAI02")
+    base_key = search_key.split("-R")[0] if "-R" in search_key else search_key
+    
+    for key, value in memory.get("quotes", {}).items():
+        if key.startswith(base_key) or base_key in key:
+            return value
+    
+    return None
+
+def get_memory_stats():
+    """Get statistics about stored memory"""
+    memory = load_memory()
+    quotes = memory.get("quotes", {})
+    
+    total_boards = sum(len(q.get("boards", [])) for q in quotes.values())
+    total_sections = sum(
+        sum(len(b.get("sections", [])) for b in q.get("boards", []))
+        for q in quotes.values()
+    )
+    
+    return {
+        "total_quotes": len(quotes),
+        "total_boards": total_boards,
+        "total_sections": total_sections,
+        "quote_numbers": list(quotes.keys())
+    }
+
+# ============================================
+# ORDER PROCESSING
+# ============================================
+
+def extract_order_info(text):
+    """Use AI to extract order information"""
+    
+    prompt = f"""Analyze this order/order acknowledgement and extract key information.
+
+ORDER TEXT:
+{text[:8000]}
+
+Extract:
+1. job_number: The job/order number (e.g., "E22831")
+2. quote_reference: The SAI quote number referenced (look for patterns like "250321SAI02-R04")
+3. customer: Customer name
+4. description: Product description
+5. specs: Extract any specs:
+   - ul_type (e.g., "UL891")
+   - voltage (e.g., "480/277V")
+   - amperage (e.g., "5000A")
+   - nema_type (e.g., "NEMA 3R")
+   - paint_finish (e.g., "ANSI 61 gray")
+   - seismic (true/false)
+   - section_count (number)
+6. quantity: Units ordered
+
+Return ONLY valid JSON:
+{{
+    "job_number": "...",
+    "quote_reference": "...",
+    "customer": "...",
+    "description": "...",
+    "specs": {{
+        "ul_type": "...",
+        "voltage": "...",
+        "amperage": "...",
+        "nema_type": "...",
+        "paint_finish": "...",
+        "seismic": true,
+        "section_count": 5
+    }},
+    "quantity": 24
+}}
+
+Return ONLY the JSON:"""
+
+    try:
+        response = openai.ChatCompletion.create(
+            engine=AZURE_OPENAI_DEPLOYMENT,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=2000
+        )
+        
+        result = response.choices[0].message["content"].strip()
+        
+        if result.startswith("```"):
+            result = result.split("```")[1]
+            if result.startswith("json"):
+                result = result[4:]
+        result = result.strip()
+        
+        return json.loads(result)
+    except Exception as e:
+        st.error(f"Error extracting order info: {e}")
+        return None
+
+def process_order(text):
+    """Process an order and find matching patterns from memory"""
+    
+    # Extract order info
+    order_info = extract_order_info(text)
+    if not order_info:
+        return {"error": "Could not extract order information"}
+    
+    result = {
+        "order_info": order_info,
+        "match_method": None,
+        "quote_data": None,
+        "box_numbers": []
+    }
+    
+    # Try to match by quote reference
+    quote_ref = order_info.get("quote_reference")
+    if quote_ref:
+        quote_data = find_quote_in_memory(quote_ref)
+        if quote_data:
+            result["match_method"] = "quote_reference"
+            result["matched_quote"] = quote_ref
+            result["quote_data"] = quote_data
+            
+            # Extract all box numbers from the quote
+            for board in quote_data.get("boards", []):
+                for section in board.get("sections", []):
+                    result["box_numbers"].append({
+                        "board": board.get("board_name"),
+                        "section": section.get("section_id"),
+                        "dimensions": f"{section.get('height')}×{section.get('width')}×{section.get('depth')}",
+                        "box_number": section.get("box_number")
+                    })
+            
+            return result
+    
+    # No match found
+    result["match_method"] = "no_match"
+    result["message"] = f"Quote '{quote_ref}' not found in memory. Process the quote first to learn its patterns."
+    
+    return result
 
 # ============================================
 # KNOWLEDGE BASE
@@ -685,6 +944,10 @@ if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'results' not in st.session_state:
     st.session_state.results = None
+if 'mode' not in st.session_state:
+    st.session_state.mode = "quote"
+if 'order_results' not in st.session_state:
+    st.session_state.order_results = None
 
 if not st.session_state.authenticated:
     login_page()
@@ -695,163 +958,288 @@ else:
         if st.button("Sign out"):
             st.session_state.authenticated = False
             st.session_state.results = None
+            st.session_state.order_results = None
             st.rerun()
     with col3:
         if st.button("Clear"):
             st.session_state.results = None
+            st.session_state.order_results = None
             st.rerun()
     
     # Logo
     st.markdown("""
     <div style="text-align: center; margin: 2rem 0;">
         <h1 style="color: #fff; font-size: 2.5rem; margin: 0;">Voltrix</h1>
-        <p style="color: #6b6b6b; font-size: 0.9rem;">Box Number Generator v2.1</p>
+        <p style="color: #6b6b6b; font-size: 0.9rem;">Box Number Generator v2.2</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # File upload
-    st.markdown("<p style='color: #888; margin-bottom: 0.5rem;'>Upload Quote PDF</p>", unsafe_allow_html=True)
+    # Mode selector
+    st.markdown("<p style='color: #888; margin-bottom: 0.5rem;'>Select Mode</p>", unsafe_allow_html=True)
+    mode = st.radio("", ["📄 Process Quote", "📦 Process Order", "🧠 View Memory"], 
+                    horizontal=True, label_visibility="collapsed")
     
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        uploaded_file = st.file_uploader("", type=['pdf'], label_visibility="collapsed")
-    with col2:
-        process_btn = st.button("Generate Box Numbers", use_container_width=True, disabled=not uploaded_file)
+    st.markdown("---")
     
-    # Process
-    if process_btn and uploaded_file:
-        kb = load_knowledge_base()
+    # ========== QUOTE MODE ==========
+    if mode == "📄 Process Quote":
+        st.markdown("<p style='color: #888; margin-bottom: 0.5rem;'>Upload Quote PDF</p>", unsafe_allow_html=True)
         
-        if not kb:
-            st.error("Cannot load BoxKnowledge.json")
-        else:
-            with st.spinner("Reading PDF..."):
-                text = extract_text_from_pdf(uploaded_file)
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            uploaded_file = st.file_uploader("", type=['pdf'], label_visibility="collapsed", key="quote_upload")
+        with col2:
+            process_btn = st.button("Generate Box Numbers", use_container_width=True, disabled=not uploaded_file)
+        
+        # Process Quote
+        if process_btn and uploaded_file:
+            kb = load_knowledge_base()
             
-            if text:
-                with st.spinner("Analyzing quote with AI..."):
-                    quote_data = extract_quote_data(text)
+            if not kb:
+                st.error("Cannot load BoxKnowledge.json")
+            else:
+                with st.spinner("Reading PDF..."):
+                    text = extract_text_from_pdf(uploaded_file)
                 
-                if quote_data:
-                    boards = quote_data.get("boards", [])
+                if text:
+                    # Extract quote number from filename or text
+                    quote_number = uploaded_file.name.replace(".pdf", "").replace("_", "-")
                     
-                    # Check for incomplete data
-                    incomplete_boards = [b for b in boards if not b.get("sections")]
-                    if incomplete_boards:
-                        st.warning(f"⚠️ {len(incomplete_boards)} board(s) may have incomplete data. Very long quotes may be truncated.")
+                    with st.spinner("Analyzing quote with AI..."):
+                        quote_data = extract_quote_data(text)
                     
-                    # Generate box numbers for each section in each board
-                    all_boards = []
-                    for board in boards:
-                        board_name = board.get("board_name", "Unknown Board")
-                        board_features = board.get("board_features", {})
-                        sections = board.get("sections", [])
+                    if quote_data:
+                        boards = quote_data.get("boards", [])
                         
-                        # Skip boards with no sections (incomplete)
-                        if not sections:
-                            st.info(f"Board '{board_name}' has no sections - may be truncated")
+                        # Check for incomplete data
+                        incomplete_boards = [b for b in boards if not b.get("sections")]
+                        if incomplete_boards:
+                            st.warning(f"⚠️ {len(incomplete_boards)} board(s) may have incomplete data.")
                         
-                        section_results = []
-                        for section in sections:
-                            box_result = generate_box_number(section, board_features, kb)
-                            section_results.append({
-                                "section": section,
-                                "box_result": box_result
+                        # Generate box numbers for each section
+                        all_boards = []
+                        for board in boards:
+                            board_name = board.get("board_name", "Unknown Board")
+                            board_features = board.get("board_features", {})
+                            sections = board.get("sections", [])
+                            
+                            if not sections:
+                                st.info(f"Board '{board_name}' has no sections - may be truncated")
+                            
+                            section_results = []
+                            for section in sections:
+                                box_result = generate_box_number(section, board_features, kb)
+                                section_results.append({
+                                    "section": section,
+                                    "box_result": box_result
+                                })
+                            
+                            all_boards.append({
+                                "board_name": board_name,
+                                "board_features": board_features,
+                                "sections": section_results
                             })
                         
-                        all_boards.append({
-                            "board_name": board_name,
-                            "board_features": board_features,
-                            "sections": section_results
-                        })
-                    
-                    st.session_state.results = {
-                        "filename": uploaded_file.name,
-                        "boards": all_boards
-                    }
-                    st.rerun()
+                        # Save to memory
+                        with st.spinner("Saving to memory..."):
+                            stored = store_quote_patterns(quote_number, all_boards)
+                            if stored:
+                                st.success(f"✅ Saved {quote_number} to memory!")
+                        
+                        st.session_state.results = {
+                            "filename": uploaded_file.name,
+                            "quote_number": quote_number,
+                            "boards": all_boards
+                        }
+                        st.rerun()
+                    else:
+                        st.error("Could not extract data from quote")
                 else:
-                    st.error("Could not extract data from quote")
-            else:
-                st.error("Could not read PDF")
-    
-    # Display results
-    if st.session_state.results:
-        results = st.session_state.results
+                    st.error("Could not read PDF")
         
-        st.markdown(f"### 📄 {results['filename']}")
-        
-        total_sections = sum(len(b['sections']) for b in results['boards'])
-        st.markdown(f"**{len(results['boards'])} board(s), {total_sections} section(s) found**")
-        
-        # Loop through each board
-        for board_idx, board in enumerate(results['boards']):
-            board_name = board.get('board_name', 'Unknown Board')
-            board_features = board.get('board_features', {})
-            sections = board.get('sections', [])
+        # Display Quote Results
+        if st.session_state.results:
+            results = st.session_state.results
             
-            # Board header
-            st.markdown(f"""
-            <div style="background: #252525; border-left: 4px solid #3b82f6; padding: 1rem 1.5rem; margin: 1.5rem 0 1rem 0; border-radius: 0 8px 8px 0;">
-                <div style="font-size: 1.3rem; font-weight: 700; color: #3b82f6;">📋 {board_name}</div>
-                <div style="color: #888; font-size: 0.85rem;">{len(sections)} section(s)</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"### 📄 {results['filename']}")
             
-            # Board features
-            display_board_features(board_features)
+            total_sections = sum(len(b['sections']) for b in results['boards'])
+            st.markdown(f"**{len(results['boards'])} board(s), {total_sections} section(s) found**")
             
-            st.markdown("#### 📦 Sections")
-            
-            # Each section in this board
-            for item in sections:
-                display_section_box_number(item['section'], item['box_result'])
-            
-            # Summary table for this board
-            st.markdown(f"**{board_name} - Summary**")
-            
-            summary_data = []
-            for item in sections:
-                summary_data.append({
-                    "Section": item['section'].get('identifier', 'Unknown'),
-                    "Dimensions": f"{item['section'].get('height', '?')}×{item['section'].get('width', '?')}×{item['section'].get('depth', '?')}",
-                    "Box Number": item['box_result'].get('box_number', 'ERROR')
-                })
-            
-            st.table(summary_data)
-            
-            if board_idx < len(results['boards']) - 1:
-                st.markdown("---")
-        
-        # Export all button
-        st.markdown("---")
-        if st.button("Export All to CSV"):
-            import pandas as pd
-            all_data = []
-            for board in results['boards']:
-                board_name = board.get('board_name', 'Unknown')
-                for item in board['sections']:
-                    all_data.append({
-                        "Board": board_name,
+            for board_idx, board in enumerate(results['boards']):
+                board_name = board.get('board_name', 'Unknown Board')
+                board_features = board.get('board_features', {})
+                sections = board.get('sections', [])
+                
+                st.markdown(f"""
+                <div style="background: #252525; border-left: 4px solid #3b82f6; padding: 1rem 1.5rem; margin: 1.5rem 0 1rem 0; border-radius: 0 8px 8px 0;">
+                    <div style="font-size: 1.3rem; font-weight: 700; color: #3b82f6;">📋 {board_name}</div>
+                    <div style="color: #888; font-size: 0.85rem;">{len(sections)} section(s)</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                display_board_features(board_features)
+                
+                st.markdown("#### 📦 Sections")
+                
+                for item in sections:
+                    display_section_box_number(item['section'], item['box_result'])
+                
+                st.markdown(f"**{board_name} - Summary**")
+                
+                summary_data = []
+                for item in sections:
+                    summary_data.append({
                         "Section": item['section'].get('identifier', 'Unknown'),
-                        "Height": item['section'].get('height', '?'),
-                        "Width": item['section'].get('width', '?'),
-                        "Depth": item['section'].get('depth', '?'),
+                        "Dimensions": f"{item['section'].get('height', '?')}×{item['section'].get('width', '?')}×{item['section'].get('depth', '?')}",
                         "Box Number": item['box_result'].get('box_number', 'ERROR')
                     })
+                
+                st.table(summary_data)
+                
+                if board_idx < len(results['boards']) - 1:
+                    st.markdown("---")
             
-            df = pd.DataFrame(all_data)
-            csv = df.to_csv(index=False)
-            st.download_button(
-                "Download CSV",
-                csv,
-                f"box_numbers_{results['filename'].replace('.pdf', '')}.csv",
-                "text/csv"
-            )
+            st.markdown("---")
+            if st.button("Export All to CSV"):
+                import pandas as pd
+                all_data = []
+                for board in results['boards']:
+                    board_name = board.get('board_name', 'Unknown')
+                    for item in board['sections']:
+                        all_data.append({
+                            "Board": board_name,
+                            "Section": item['section'].get('identifier', 'Unknown'),
+                            "Height": item['section'].get('height', '?'),
+                            "Width": item['section'].get('width', '?'),
+                            "Depth": item['section'].get('depth', '?'),
+                            "Box Number": item['box_result'].get('box_number', 'ERROR')
+                        })
+                
+                df = pd.DataFrame(all_data)
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    "Download CSV",
+                    csv,
+                    f"box_numbers_{results['filename'].replace('.pdf', '')}.csv",
+                    "text/csv"
+                )
+    
+    # ========== ORDER MODE ==========
+    elif mode == "📦 Process Order":
+        st.markdown("<p style='color: #888; margin-bottom: 0.5rem;'>Upload Order PDF</p>", unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            order_file = st.file_uploader("", type=['pdf'], label_visibility="collapsed", key="order_upload")
+        with col2:
+            order_btn = st.button("Find Box Numbers", use_container_width=True, disabled=not order_file)
+        
+        # Process Order
+        if order_btn and order_file:
+            with st.spinner("Reading order PDF..."):
+                text = extract_text_from_pdf(order_file)
+            
+            if text:
+                with st.spinner("Analyzing order and searching memory..."):
+                    order_result = process_order(text)
+                
+                st.session_state.order_results = order_result
+                st.rerun()
+            else:
+                st.error("Could not read PDF")
+        
+        # Display Order Results
+        if st.session_state.order_results:
+            result = st.session_state.order_results
+            order_info = result.get("order_info", {})
+            
+            st.markdown("### 📦 Order Information")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"**Job Number:** {order_info.get('job_number', 'N/A')}")
+                st.markdown(f"**Customer:** {order_info.get('customer', 'N/A')}")
+                st.markdown(f"**Quote Reference:** {order_info.get('quote_reference', 'N/A')}")
+            with col2:
+                st.markdown(f"**Quantity:** {order_info.get('quantity', 'N/A')}")
+                specs = order_info.get('specs', {})
+                st.markdown(f"**UL Type:** {specs.get('ul_type', 'N/A')}")
+                st.markdown(f"**Sections:** {specs.get('section_count', 'N/A')}")
+            
+            st.markdown("---")
+            
+            # Show match results
+            if result.get("match_method") == "quote_reference":
+                st.success(f"✅ Found match! Quote: {result.get('matched_quote')}")
+                
+                st.markdown("### 📋 Box Numbers from Quote")
+                
+                box_numbers = result.get("box_numbers", [])
+                if box_numbers:
+                    for bn in box_numbers:
+                        st.markdown(f"""
+                        <div style="background: #1a2e1a; border: 1px solid #2d5a2d; border-radius: 8px; padding: 1rem; margin: 0.5rem 0;">
+                            <div style="color: #4ade80; font-weight: 600;">{bn.get('board', 'Unknown Board')}</div>
+                            <div style="color: #888; font-size: 0.9rem;">{bn.get('section', 'Unknown')} • {bn.get('dimensions', '')}</div>
+                            <div style="color: #fff; font-size: 1.2rem; font-family: monospace; margin-top: 0.5rem;">{bn.get('box_number', 'N/A')}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Summary table
+                    st.markdown("### Summary")
+                    summary = [{"Board": bn.get("board"), "Section": bn.get("section"), "Box Number": bn.get("box_number")} for bn in box_numbers]
+                    st.table(summary)
+                else:
+                    st.warning("Quote found but no box numbers stored.")
+            
+            elif result.get("match_method") == "no_match":
+                st.error(f"❌ {result.get('message', 'No match found')}")
+                st.info("💡 **Tip:** Process the referenced quote first, then try the order again.")
+    
+    # ========== MEMORY VIEW MODE ==========
+    elif mode == "🧠 View Memory":
+        st.markdown("### 🧠 Persistent Memory")
+        
+        stats = get_memory_stats()
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Quotes Stored", stats.get("total_quotes", 0))
+        with col2:
+            st.metric("Total Boards", stats.get("total_boards", 0))
+        with col3:
+            st.metric("Total Sections", stats.get("total_sections", 0))
+        
+        st.markdown("---")
+        st.markdown("#### Stored Quotes")
+        
+        quote_numbers = stats.get("quote_numbers", [])
+        if quote_numbers:
+            for qn in quote_numbers:
+                st.markdown(f"- `{qn}`")
+        else:
+            st.info("No quotes stored yet. Process a quote to add it to memory.")
+        
+        st.markdown("---")
+        
+        # Manual lookup
+        st.markdown("#### 🔍 Quick Lookup")
+        lookup_quote = st.text_input("Enter quote number to lookup:")
+        if st.button("Search") and lookup_quote:
+            found = find_quote_in_memory(lookup_quote)
+            if found:
+                st.success(f"Found! Processed: {found.get('processed_at', 'Unknown')}")
+                for board in found.get("boards", []):
+                    st.markdown(f"**{board.get('board_name')}**")
+                    for section in board.get("sections", []):
+                        st.markdown(f"  - {section.get('section_id')}: `{section.get('box_number')}`")
+            else:
+                st.error("Quote not found in memory")
     
     # Footer
     st.markdown("""
     <div style="text-align: center; color: #6b6b6b; font-size: 0.8rem; padding: 2rem 0;">
-        SAI Advanced Power Solutions • Voltrix v2.1
+        SAI Advanced Power Solutions • Voltrix v2.2
     </div>
     """, unsafe_allow_html=True)

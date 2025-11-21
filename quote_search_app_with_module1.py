@@ -856,6 +856,43 @@ st.markdown("""
         font-size: 0.7rem;
         font-weight: 500;
     }
+    
+    /* Compact file uploaders */
+    .stFileUploader {
+        margin-bottom: 0 !important;
+    }
+    
+    .stFileUploader > div {
+        padding: 0 !important;
+    }
+    
+    .stFileUploader section {
+        padding: 0.5rem !important;
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 8px !important;
+    }
+    
+    .stFileUploader section > div {
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 0.5rem !important;
+    }
+    
+    .stFileUploader [data-testid="stFileUploaderDropzone"] {
+        padding: 0.5rem !important;
+        min-height: auto !important;
+    }
+    
+    .stFileUploader [data-testid="stFileUploaderDropzoneInstructions"] {
+        display: none !important;
+    }
+    
+    .stFileUploader button {
+        padding: 0.25rem 0.75rem !important;
+        font-size: 0.8rem !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1107,43 +1144,30 @@ else:
     
     st.markdown("<div style='height: 2rem;'></div>", unsafe_allow_html=True)
     
-    # Action buttons
-    col1, col2, col3, col4, col_space = st.columns([1.2, 1.2, 1.2, 1, 4])
+    # Action buttons - compact side by side
+    col1, col2, col3, col_space = st.columns([1, 1, 1, 4])
     
     with col1:
         if MODULE1_AVAILABLE and PDF_AVAILABLE:
+            st.markdown("<p style='color: #6b6b6b; font-size: 0.75rem; margin-bottom: 0.25rem;'>Quote PDF</p>", unsafe_allow_html=True)
             uploaded_quote = st.file_uploader("", type=['pdf'], key="quote_uploader", 
-                                              label_visibility="collapsed", 
-                                              help="Upload Quote PDF")
+                                              label_visibility="collapsed")
     
     with col2:
         if MODULE1_AVAILABLE and PDF_AVAILABLE:
+            st.markdown("<p style='color: #6b6b6b; font-size: 0.75rem; margin-bottom: 0.25rem;'>Order PDF</p>", unsafe_allow_html=True)
             uploaded_order = st.file_uploader("", type=['pdf'], key="order_uploader",
-                                              label_visibility="collapsed",
-                                              help="Upload Order PDF")
-    
-    with col3:
-        if MODULE1_AVAILABLE:
-            if st.button("List Assemblies", key="list_asm"):
-                matcher = get_matcher()
-                assembly_list = "**Available Assemblies:**\n\n"
-                for asm_num in sorted(matcher.assembly_specs.keys()):
-                    specs = matcher.assembly_specs[asm_num]
-                    assembly_list += f"**{asm_num}**: {specs['height']}\"H × {specs['width']}\"W × {specs['depth']}\"D\n\n"
-                st.session_state.messages.append({"role": "user", "content": "List assemblies"})
-                st.session_state.messages.append({"role": "assistant", "content": assembly_list, "type": "text"})
-                st.rerun()
+                                              label_visibility="collapsed")
     
     # Process buttons
-    if 'uploaded_quote' in locals() and uploaded_quote is not None:
-        with col4:
+    with col3:
+        if 'uploaded_quote' in locals() and uploaded_quote is not None:
             if st.button("Process Quote", key="proc_quote"):
                 st.session_state.trigger_quote_process = True
                 st.session_state.current_quote_pdf = uploaded_quote
                 st.rerun()
-    
-    if 'uploaded_order' in locals() and uploaded_order is not None:
-        with col4:
+        
+        if 'uploaded_order' in locals() and uploaded_order is not None:
             if st.button("Process Order", key="proc_order"):
                 st.session_state.trigger_order_process = True
                 st.session_state.current_order_pdf = uploaded_order
